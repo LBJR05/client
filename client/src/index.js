@@ -1,17 +1,24 @@
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import ReactDOM from 'react-dom';
 import './index.css';
 import AppWrapper from './App';
 import reportWebVitals from './reportWebVitals';
+import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import Lobby from './components/Lobby';
+import { LoadingProvider } from './LoadingContext'; // Import LoadingProvider
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
+ReactDOM.render(
   <React.StrictMode>
-    <AppWrapper />
-  </React.StrictMode>
+    <LoadingProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<AppWrapper />} />
+          <Route path="/room/:lobbyCode" element={<Lobby />} />
+        </Routes>
+      </Router>
+    </LoadingProvider>
+  </React.StrictMode>,
+  document.getElementById('root')
 );
 
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
 reportWebVitals();

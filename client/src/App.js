@@ -4,6 +4,7 @@ import './App.css';
 import { useLoading, LoadingProvider } from './LoadingContext';
 import LoadingScreen from './components/LoadingScreen';
 import socket from './socket';
+import { useNavigate } from 'react-router-dom';
 
 function App() {
   const { isLoading, showLoading, hideLoading } = useLoading();
@@ -13,6 +14,8 @@ function App() {
   const [lobbyCode, setLobbyCode] = useState('');
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState(''); // 'success' or 'error'
+  const [lobby, setLobby] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     console.log('App mounted');
@@ -65,6 +68,75 @@ function App() {
     socket.emit('updateNickname', { playerId, newNickname: nickname });
   };
 
+  const handleCreateRoom = async () => {
+    const playerId = localStorage.getItem('playerId');
+    if (!playerId) {
+      setMessage('Player ID not found. Please refresh the page.');
+      setMessageType('error');
+      return;
+    }
+  
+    try {
+      const response = await fetch('http://localhost:4000/api/lobbies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ playerId }), // Pass the player's ID
+      });
+      const data = await response.json();
+      if (response.ok) {
+        navigate(`/room/${data.lobbyCode}`); // Navigate to the lobby page
+      } else {
+        setMessage(data.message || 'Failed to create room');
+        setMessageType('error');
+      }
+    } catch (error) {
+      console.error('Error creating room:', error);
+      setMessage('Failed to create room');
+      setMessageType('error');
+    }
+  };
+
+  const handleJoinLobby = async () => {
+    if (!lobbyCode.trim()) {
+      setMessage('Lobby code is required.');
+      setMessageType('error');
+      return;
+    }
+  
+    const playerId = localStorage.getItem('playerId');
+    if (!playerId) {
+      setMessage('Player ID not found. Please refresh the page.');
+      setMessageType('error');
+      return;
+    }
+  
+    try {
+      const response = await fetch(`http://localhost:4000/api/lobbies/${lobbyCode}/join`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ playerId }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setLobby(data); // Update state
+        socket.emit('joinLobby', { lobbyCode, playerId }); // Notify server
+        navigate(`/room/${lobbyCode}`); // Redirect to lobby page
+      } else {
+        setMessage(data.message || 'Failed to join lobby');
+        setMessageType('error');
+      }
+    } catch (error) {
+      console.error('Error joining lobby:', error);
+      setMessage('Failed to join lobby');
+      setMessageType('error');
+    }
+    setShowPopup(false);
+  };
+
   console.log(`isLoading=${isLoading}, loadingComplete=${loadingComplete}`);
   return (
     <div className="App">
@@ -87,7 +159,9 @@ function App() {
             {message && <p className={`message ${messageType}`}>{message}</p>}
           </div>
           <div className="lobby-container">
-            <button className="lobby-button">Create Room</button>
+            <button className="lobby-button" onClick={handleCreateRoom}>
+              Create Room
+            </button>
             <button className="lobby-button" onClick={() => setShowPopup(true)}>
               Join Room
             </button>
@@ -97,7 +171,9 @@ function App() {
       {showPopup && (
         <div className="popup-overlay">
           <div className="popup">
-            <button className="popup-close-button" onClick={() => setShowPopup(false)}>×</button>
+            <button className="popup-close-button" onClick={() => setShowPopup(false)}>
+              ×
+            </button>
             <p>Enter the lobby code:</p>
             <input
               type="text"
@@ -106,11 +182,10 @@ function App() {
               placeholder="Lobby Code"
               className="lobby-input"
             />
-            <button className="popup-button" onClick={() => {
-              const playerId = localStorage.getItem('playerId');
-              socket.emit('joinLobby', { lobbyCode, playerId });
-              setShowPopup(false);
-            }}>Submit</button>
+            <button className="popup-button" onClick={handleJoinLobby}>
+              Submit
+            </button>
+            {message && <p className={`message ${messageType}`}>{message}</p>}
           </div>
         </div>
       )}

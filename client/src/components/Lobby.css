@@ -1,0 +1,98 @@
+/* Ensure the background stays consistent */
+.lobby-app {
+    margin: 0;
+    padding: 0;
+    background-color: #282c34; /* Matches App.css background */
+    min-height: 100vh; /* Full viewport height */
+    display: flex;
+    flex-direction: column; /* Allows stacking of multiple containers */
+    color: white;
+  }
+  
+  /* Hidden by default, will fade in when loading is complete */
+  .content {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 1s ease-in, visibility 1s ease-in; /* Smooth fade-in */
+  }
+  
+  /* Fade-in effect for the content */
+  .content.fade-in {
+    opacity: 1;
+    visibility: visible;
+  }
+  
+  /* Lobby container: Independent top-left positioning */
+  .lobbyinfo-container {
+    position: absolute; /* Absolute positioning */
+    top: 2vmin; /* Position from the top of the viewport */
+    left: 2vmin; /* Position from the left of the viewport */
+    background-color: #3b3f45;
+    border-radius: 1vmin;
+    padding: 2vmin;
+    width: 80vw;
+    max-width: 400px;
+    box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 2vmin;
+    text-align: center;
+  }
+/* Lobby header within the unified container */
+.lobby-header {
+    text-align: center; /* Center-align the header text */
+}
+  
+.lobby-code {
+    font-size: 3vmin;
+    font-weight: bold;
+    color: #61dafb; /* Accent color */
+    margin: 0;
+}
+  
+.lobby-status {
+    font-size: 2vmin;
+    color: #a9a9a9; /* Subtle gray for status */
+    margin: 0;
+}
+  
+/* Players and spectators sections */
+.player-section, .spectator-section {
+    width: 100%; /* Full width of the container */
+}
+  
+.player-section h2, .spectator-section h2 {
+    text-align: center; /* Center-align section headings */
+    font-size: 2.5vmin;
+    color: #61dafb; /* Accent color */
+    margin-bottom: 1vmin;
+}
+  
+/* Shared list styles for players and spectators */
+.player-list, .spectator-list {
+    list-style: none; /* Remove default bullet points */
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column; /* Arrange items in a column */
+    gap: 1vmin; /* Space between badges */
+    align-items: center; /* Center-align list items */
+}
+  
+/* Card-like badges for players and spectators */
+.player-list-item, .spectator-list-item {
+    background-color: #3b3f45; /* Match the container background */
+    color: white;
+    border-radius: 0.5vmin; /* Rounded corners */
+    padding: 1vmin;
+    text-align: center;
+    font-size: 2vmin;
+    font-weight: bold;
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3); /* Add shadow */
+    transition: transform 0.2s ease, box-shadow 0.2s ease; /* Hover effect */
+}
+  
+.player-list-item:hover, .spectator-list-item:hover {
+    transform: translateY(-2px); /* Lift effect on hover */
+    box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.5); /* Enhanced shadow on hover */
+}
