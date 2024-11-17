@@ -1,3 +1,40 @@
-node_modules
-node_modules
-node_modules
+# Node modules
+node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE-specific files
+.vscode/
+.idea/
+*.sublime-workspace
+
+# Dependency directories
+bower_components/
+
+# Optional npm cache
+.npm/
+
+# Coverage reports
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# Miscellaneous
+*.swp
+*.lock
+*.bak
+*.tmp
