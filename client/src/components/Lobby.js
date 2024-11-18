@@ -10,32 +10,52 @@ const Lobby = () => {
   const navigate = useNavigate();
   const [lobby, setLobby] = useState(null);
   const [message, setMessage] = useState('');
-  const [loadingComplete, setLoadingComplete] = useState(false);
   const { isLoading, showLoading, hideLoading } = useLoading();
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadingComplete, setLoadingComplete] = useState(false); // Animation state
 
   useEffect(() => {
-    // Save the current lobbyCode in localStorage
-    localStorage.setItem('lobbyCode', lobbyCode);
+    console.log('Lobby.js mounted');
+  
+    const playerId = localStorage.getItem('playerId');
+    socket.emit('getOrCreatePlayer', { playerId, reconnect: true }); // Ensure reconnect is true
+  
+  
+    socket.on('playerData', ({ playerId }) => {
+      localStorage.setItem('playerId', playerId);
+    });
 
-    const handleBeforeUnload = () => {
-      setIsRefreshing(true); // Mark this as a refresh
-    };
+    socket.on('lobbyUpdated', (updatedLobby) => {
+      setLobby(updatedLobby);
+    });
 
-    // Add event listener for refresh or tab close
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    // Cleanup on component unmount
+    // Simplified cleanup that won't trigger disconnection
     return () => {
-      // If navigating away (not a refresh), emit leaveLobby
-      if (!isRefreshing) {
-        socket.emit('leaveLobby', { lobbyCode, playerId: localStorage.getItem('playerId') });
-        socket.disconnect(); // Disconnect socket explicitly
-        localStorage.removeItem('lobbyCode');
-      }
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      console.log(`Lobby.js unmounting for lobbyCode: ${lobbyCode}`);
+      socket.off('lobbyUpdated');
+      socket.off('playerData');
     };
-  }, [lobbyCode, isRefreshing]);
+  }, [lobbyCode]);
+
+  // Handle returning to the homepage
+  const handleReturnToHomepage = () => {
+    const playerId = localStorage.getItem('playerId');
+    
+    // Emit a specific event to delete the lobby without disconnecting the socket
+    socket.emit('deleteLobbyAndNavigate', { lobbyCode, playerId });
+  
+    // Listen for confirmation and navigate without cleanup
+    socket.once('lobbyDeleted', ({ message }) => {
+      console.log(message);
+      navigate('/'); // Navigate to homepage
+    });
+  
+    socket.once('error', (err) => {
+      console.error(err);
+      alert('Error deleting the lobby. Please try again.');
+    });
+  };
+
+  // Remove the location change effect entirely
 
   useEffect(() => {
     showLoading();
@@ -45,14 +65,18 @@ const Lobby = () => {
         const data = await response.json();
         if (response.ok) {
           setLobby(data);
+          const playerId = localStorage.getItem('playerId');
+          socket.emit('joinLobby', { lobbyCode, playerId });
         } else {
           setMessage(data.message || 'Failed to fetch lobby');
-          localStorage.removeItem('lobbyCode'); // Clear if lobby doesn't exist
+          localStorage.removeItem('lobbyCode');
+          setTimeout(() => navigate('/'), 3000); // Redirect after 3 seconds
         }
       } catch (error) {
         console.error('Error fetching lobby:', error);
         setMessage('Failed to fetch lobby');
-        localStorage.removeItem('lobbyCode'); // Clear if error occurs
+        localStorage.removeItem('lobbyCode');
+        setTimeout(() => navigate('/'), 3000); // Redirect after 3 seconds
       } finally {
         hideLoading();
       }
@@ -60,18 +84,24 @@ const Lobby = () => {
 
     fetchLobby();
 
-    const playerId = localStorage.getItem('playerId');
-    socket.emit('joinLobby', { lobbyCode, playerId });
-
     socket.on('lobbyUpdated', (updatedLobby) => {
       setLobby(updatedLobby);
     });
 
     return () => {
+      console.log(`Lobby.js unmounting for lobbyCode: ${lobbyCode}`);
+      const playerId = localStorage.getItem('playerId');
+      
+      // Only emit leaveLobby if we're not navigating to homepage
+      if (!window.location.pathname.includes('/room/')) {
+        socket.emit('leaveLobby', { lobbyCode, playerId });
+      }
+      
       socket.off('lobbyUpdated');
     };
-  }, [lobbyCode, showLoading, hideLoading]);
+  }, [lobbyCode, navigate, showLoading, hideLoading]);
 
+  // Handle animation end
   const handleAnimationEnd = () => {
     setLoadingComplete(true);
   };
@@ -115,6 +145,12 @@ const Lobby = () => {
                   ))}
                 </ul>
               </div>
+              <button
+                className="return-home-button"
+                onClick={handleReturnToHomepage} // Navigate back to homepage
+              >
+                Return to Homepage
+              </button>
             </div>
           ) : (
             <p>{message}</p>

@@ -96,3 +96,27 @@
     transform: translateY(-2px); /* Lift effect on hover */
     box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.5); /* Enhanced shadow on hover */
 }
+/* Return to homepage button */
+.return-home-button {
+    background-color: #61dafb; /* Accent color */
+    color: #282c34; /* Dark text for contrast */
+    border: none;
+    border-radius: 0.5vmin;
+    padding: 1vmin 2vmin;
+    font-size: 2vmin;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 2vmin;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  
+  .return-home-button:hover {
+    transform: translateY(-2px); /* Lift effect on hover */
+    box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.5); /* Enhanced shadow */
+  }
+  
+  .return-home-button:active {
+    transform: translateY(0); /* Reset lift effect on click */
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3); /* Reset shadow */
+  }
+  

@@ -1,4 +1,3 @@
-// client/src/App.js
 import React, { useEffect, useState } from 'react';
 import './App.css';
 import { useLoading, LoadingProvider } from './LoadingContext';
@@ -14,41 +13,55 @@ function App() {
   const [lobbyCode, setLobbyCode] = useState('');
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState(''); // 'success' or 'error'
-  const [lobby, setLobby] = useState(null);
+  const [sessionLost, setSessionLost] = useState(false); // Track session loss
   const navigate = useNavigate();
 
   useEffect(() => {
     console.log('App mounted');
     showLoading();
     hideLoading();
-  }, [showLoading, hideLoading]);
 
-  useEffect(() => {
     const playerId = localStorage.getItem('playerId');
-    socket.emit('getOrCreatePlayer', { playerId });
+    if (!socket.connected) {
+      console.log('Emitting getOrCreatePlayer for new connection.');
+      socket.emit('getOrCreatePlayer', { playerId, reconnect: true });
+    } else {
+      console.log('Socket already connected. Skipping getOrCreatePlayer.');
+    }
     socket.on('playerData', ({ playerId, nickname }) => {
       localStorage.setItem('playerId', playerId);
       setNickname(nickname);
     });
+
     socket.on('nicknameUpdated', ({ newNickname }) => {
       setNickname(newNickname);
       setMessage('Nickname updated successfully.');
       setMessageType('success');
     });
+
     socket.on('nicknameUpdateFailed', ({ message }) => {
       setMessage(message);
       setMessageType('error');
     });
+
+    // Handle session loss
+    socket.on('sessionLost', ({ message }) => {
+      setSessionLost(true);
+      alert(message); // Notify user about session loss
+    });
+
     return () => {
+      console.log('Cleaning up App.js listeners.');
       socket.off('playerData');
       socket.off('nicknameUpdated');
       socket.off('nicknameUpdateFailed');
+      socket.off('sessionLost');
     };
-  }, []);
+  }, [showLoading, hideLoading]);
 
   const handleAnimationEnd = () => {
     console.log('Animation ended');
-    setLoadingComplete(true); // Ensure this triggers first
+    setLoadingComplete(true);
   };
 
   useEffect(() => {
@@ -57,8 +70,6 @@ function App() {
       const contentElement = document.querySelector('.content');
       if (contentElement) {
         contentElement.classList.add('fade-in');
-      } else {
-        console.log('Content element not found after loadingComplete');
       }
     }
   }, [loadingComplete]);
@@ -75,18 +86,17 @@ function App() {
       setMessageType('error');
       return;
     }
-  
+
     try {
       const response = await fetch('http://localhost:4000/api/lobbies', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ playerId }), // Pass the player's ID
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId }),
       });
       const data = await response.json();
       if (response.ok) {
-        navigate(`/room/${data.lobbyCode}`); // Navigate to the lobby page
+        socket.emit('getOrCreatePlayer', { playerId, reconnect: true }); // Ensure reconnect
+        navigate(`/room/${data.lobbyCode}`);
       } else {
         setMessage(data.message || 'Failed to create room');
         setMessageType('error');
@@ -104,27 +114,25 @@ function App() {
       setMessageType('error');
       return;
     }
-  
+
     const playerId = localStorage.getItem('playerId');
     if (!playerId) {
       setMessage('Player ID not found. Please refresh the page.');
       setMessageType('error');
       return;
     }
-  
+
     try {
       const response = await fetch(`http://localhost:4000/api/lobbies/${lobbyCode}/join`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playerId }),
       });
       const data = await response.json();
       if (response.ok) {
-        setLobby(data); // Update state
-        socket.emit('joinLobby', { lobbyCode, playerId }); // Notify server
-        navigate(`/room/${lobbyCode}`); // Redirect to lobby page
+        setLobbyCode(data.lobbyCode);
+        socket.emit('getOrCreatePlayer', { playerId, reconnect: true }); // Ensure reconnect
+        navigate(`/room/${lobbyCode}`);
       } else {
         setMessage(data.message || 'Failed to join lobby');
         setMessageType('error');
@@ -144,28 +152,37 @@ function App() {
         <LoadingScreen onAnimationEnd={handleAnimationEnd} />
       ) : (
         <div className="content">
-          <div className="nickname-container">
-            <p>Enter a nickname</p>
-            <input
-              type="text"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="Enter your nickname"
-              className="nickname-input"
-            />
-            <button className="nickname-button" onClick={handleChangeNickname}>
-              Change Nickname
-            </button>
-            {message && <p className={`message ${messageType}`}>{message}</p>}
-          </div>
-          <div className="lobby-container">
-            <button className="lobby-button" onClick={handleCreateRoom}>
-              Create Room
-            </button>
-            <button className="lobby-button" onClick={() => setShowPopup(true)}>
-              Join Room
-            </button>
-          </div>
+          {sessionLost ? (
+            <div className="session-lost">
+              <p>Session lost. Please refresh or return to the active session.</p>
+              <button onClick={() => window.location.reload()}>Refresh</button>
+            </div>
+          ) : (
+            <>
+              <div className="nickname-container">
+                <p>Enter a nickname</p>
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder="Enter your nickname"
+                  className="nickname-input"
+                />
+                <button className="nickname-button" onClick={handleChangeNickname}>
+                  Change Nickname
+                </button>
+                {message && <p className={`message ${messageType}`}>{message}</p>}
+              </div>
+              <div className="lobby-container">
+                <button className="lobby-button" onClick={handleCreateRoom}>
+                  Create Room
+                </button>
+                <button className="lobby-button" onClick={() => setShowPopup(true)}>
+                  Join Room
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
       {showPopup && (

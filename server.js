@@ -19,8 +19,8 @@ const io = socketIo(server, {
     origin: ["http://localhost", "http://localhost:3000"],
     methods: ["GET", "POST"],
   },
-  pingTimeout: 60000, // Increase timeout to 60 seconds
-  pingInterval: 25000, // Send ping every 25 seconds
+  pingTimeout: 2000, // Increase timeout to 60 seconds
+  pingInterval: 1000, // Send ping every 25 seconds
 });
 
 mongoose.connect(process.env.MONGO_URI, {
@@ -55,12 +55,28 @@ app.get('/api/player/:playerId', async (req, res) => {
 });
 
 const activeSockets = new Map(); // Map to track active sockets and their players
+const disconnectionTimeouts = new Map(); // Map to manage reconnection timeouts
 
 io.on('connection', (socket) => {
-  console.log('New client connected: ', socket.id);
+  console.log('New client connected:', socket.id);
 
-  // Handle player connection and track their socket
-  socket.on('getOrCreatePlayer', async ({ playerId }) => {
+  // Initialize socket state
+  socket.state = {
+    isNavigating: false,
+    playerId: null,
+    lobbyCode: null
+  };
+
+  socket.on('getOrCreatePlayer', async ({ playerId, reconnect = false }) => {
+    console.log(`[getOrCreatePlayer] Received for playerId: ${playerId}, reconnect: ${reconnect}`);
+  
+    socket.state.playerId = playerId;
+  
+    if (reconnect) {
+      reconnectingSockets.add(socket.id); // Mark this socket as reconnecting
+      setTimeout(() => reconnectingSockets.delete(socket.id), 5000); // Clear after 5 seconds
+    }
+  
     try {
       if (!playerId) {
         playerId = uuidv4();
@@ -79,12 +95,45 @@ io.on('connection', (socket) => {
           socket.emit('playerData', { playerId, nickname });
         }
       }
-
-      // Track the playerId with the socket
-      activeSockets.set(socket.id, playerId);
+  
+      if (!activeSockets.has(playerId)) {
+        activeSockets.set(playerId, new Set());
+      }
+      activeSockets.get(playerId).add(socket.id);
+  
+      console.log(`[getOrCreatePlayer] Active socket for playerId ${playerId}: ${socket.id}`);
     } catch (error) {
       console.error('Error in getOrCreatePlayer:', error);
       socket.emit('error', { message: 'Internal server error' });
+    }
+  });
+
+  socket.on('deleteLobbyAndNavigate', async ({ lobbyCode, playerId }) => {
+    socket.state.isNavigating = true; // Ensure state reflects navigation
+    console.log(`Player ${playerId} is deleting lobby ${lobbyCode} and navigating away.`);
+    try {
+      const player = await Player.findOne({ uuid: playerId });
+      if (player) {
+        const lobby = await Lobby.findOne({ lobbyCode }).populate('players spectators');
+        if (lobby) {
+          console.log(`Removing player ${playerId} from lobby ${lobbyCode}`);
+          lobby.removePlayer(player._id);
+          await lobby.save();
+  
+          if (lobby.isEmpty()) {
+            console.log(`Lobby ${lobbyCode} is empty and being deleted.`);
+            await Lobby.deleteOne({ _id: lobby._id });
+          } else {
+            io.to(lobbyCode).emit('lobbyUpdated', lobby);
+          }
+          socket.emit('lobbyDeleted', { message: 'Lobby deleted successfully.' });
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting lobby:', error);
+      socket.emit('error', { message: 'Failed to delete the lobby.' });
+    } finally {
+      socket.state.isNavigating = false; // Reset navigation state
     }
   });
 
@@ -112,29 +161,63 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle leaveLobby
-  socket.on('leaveLobby', async ({ lobbyCode, playerId }) => {
-    console.log(`Player ${playerId} leaving lobby ${lobbyCode}`);
-    try {
-      const player = await Player.findOne({ uuid: playerId });
-      if (player) {
-        const lobby = await Lobby.findOne({ lobbyCode }).populate('players spectators');
-        if (lobby) {
-          lobby.removePlayer(player._id);
-          await lobby.save();
+  const reconnectingSockets = new Set(); // Track sockets that are reconnecting
+
+
+  socket.on('disconnect', async () => {
+    const playerId = socket.state.playerId;
+    const socketId = socket.id;
   
-          if (lobby.isEmpty()) {
-            console.log(`Lobby ${lobbyCode} is empty and can be closed.`);
-            await Lobby.deleteOne({ _id: lobby._id });
-          } else {
-            io.to(lobbyCode).emit('lobbyUpdated', lobby);
-          }
+    if (!playerId) {
+      console.log(`[disconnect] Socket disconnected with no associated player: ${socketId}`);
+      return;
+    }
+  
+    console.log(`[disconnect] Handling disconnection for playerId: ${playerId}, socketId: ${socketId}`);
+  
+    // Remove the socket from active sockets map
+    if (activeSockets.has(playerId)) {
+      const sockets = activeSockets.get(playerId);
+      sockets.delete(socketId);
+  
+      if (sockets.size === 0) {
+        activeSockets.delete(playerId);
+      }
+    }
+  
+    console.log(`[disconnect] Removing player ${playerId} from their lobby (if any).`);
+  
+    // Remove the player from the lobby
+    const player = await Player.findOne({ uuid: playerId });
+    if (player) {
+      const lobby = await Lobby.findOne({ players: player._id }).populate('players spectators');
+      if (lobby) {
+        console.log(`[disconnect] Removing player ${playerId} from lobby ${lobby.lobbyCode}`);
+        lobby.removePlayer(player._id);
+        await lobby.save();
+  
+        if (lobby.isEmpty()) {
+          console.log(`[disconnect] Lobby ${lobby.lobbyCode} is empty. Starting 5-second cleanup timer.`);
+          const timeout = setTimeout(async () => {
+            const currentLobby = await Lobby.findById(lobby._id);
+            if (currentLobby && currentLobby.isEmpty()) {
+              console.log(`[disconnect] Deleting empty lobby ${currentLobby.lobbyCode}`);
+              await Lobby.deleteOne({ _id: currentLobby._id });
+            } else {
+              console.log(`[disconnect] Lobby ${lobby.lobbyCode} is no longer empty. Cleanup aborted.`);
+            }
+          }, 5000);
+  
+          disconnectionTimeouts.set(lobby.lobbyCode, timeout);
+        } else {
+          console.log(`[disconnect] Lobby ${lobby.lobbyCode} still has players. No cleanup needed.`);
+          io.to(lobby.lobbyCode).emit('lobbyUpdated', lobby); // Notify remaining players
         }
       }
-    } catch (error) {
-      console.error('Error handling leaveLobby:', error);
     }
   });
+  
+  
 
   socket.on('joinLobby', async ({ lobbyCode, playerId }) => {
     try {
@@ -144,58 +227,46 @@ io.on('connection', (socket) => {
         return;
       }
   
-      const player = await Player.findOne({ uuid: playerId }); // Find by UUID
+      const player = await Player.findOne({ uuid: playerId });
       if (!player) {
         socket.emit('error', { message: 'Player not found' });
         return;
       }
   
-      console.log(`Adding player ${playerId} to lobby ${lobbyCode}`);
-      lobby.addPlayer(player);
-      await lobby.save();
+      console.log(`[joinLobby] Player ${playerId} requested to join lobby ${lobbyCode}. Waiting 3 seconds...`);
   
-      const populatedLobby = await Lobby.findById(lobby._id).populate('players spectators');
-      console.log(`Player ${playerId} added to lobby ${lobbyCode}`);
-      console.log('Emitting updated lobby:', populatedLobby);
+      setTimeout(async () => {
+        // Ensure lobby still exists after the delay
+        const currentLobby = await Lobby.findOne({ lobbyCode }).populate('players spectators');
+        if (!currentLobby) {
+          console.log(`[joinLobby] Lobby ${lobbyCode} no longer exists after delay. Aborting.`);
+          return;
+        }
   
-      socket.join(lobbyCode); // Join the room
-      io.to(lobbyCode).emit('lobbyUpdated', populatedLobby); // Broadcast to the room
+        // Cancel any pending cleanup for the lobby
+        if (disconnectionTimeouts.has(lobbyCode)) {
+          console.log(`[joinLobby] Player ${playerId} joined. Canceling cleanup for lobby ${lobbyCode}`);
+          clearTimeout(disconnectionTimeouts.get(lobbyCode));
+          disconnectionTimeouts.delete(lobbyCode);
+        }
+  
+        console.log(`[joinLobby] Adding player ${playerId} to lobby ${lobbyCode} after 3-second delay.`);
+        currentLobby.addPlayer(player);
+        await currentLobby.save();
+  
+        const populatedLobby = await Lobby.findById(currentLobby._id).populate('players spectators');
+        console.log(`[joinLobby] Player ${playerId} added to lobby ${lobbyCode}`);
+        console.log('[joinLobby] Emitting updated lobby:', populatedLobby);
+  
+        socket.join(lobbyCode);
+        io.to(lobbyCode).emit('lobbyUpdated', populatedLobby);
+      }, 3000); // 3-second delay
     } catch (error) {
-      console.error('Error in joinLobby:', error);
+      console.error('[joinLobby] Error in joinLobby:', error);
       socket.emit('error', { message: 'Internal server error' });
     }
   });
-
-  // Handle disconnect
-  socket.on('disconnect', async () => {
-    console.log(`Client disconnected: ${socket.id}`);
-    const playerId = activeSockets.get(socket.id);
-
-    if (playerId) {
-      try {
-        const player = await Player.findOne({ uuid: playerId });
-        if (player) {
-          const lobby = await Lobby.findOne({ players: player._id }).populate('players spectators');
-          if (lobby) {
-            console.log(`Removing player ${playerId} from lobby ${lobby.lobbyCode}`);
-            lobby.removePlayer(player._id);
-            await lobby.save();
-
-            if (lobby.isEmpty()) {
-              console.log(`Lobby ${lobby.lobbyCode} is empty and can be closed.`);
-              await Lobby.deleteOne({ _id: lobby._id });
-            } else {
-              io.to(lobby.lobbyCode).emit('lobbyUpdated', lobby);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error handling disconnect:', error);
-      }
-    }
-
-    activeSockets.delete(socket.id);
-  });
+  
 });
 
 const PORT = process.env.PORT || 4000;
