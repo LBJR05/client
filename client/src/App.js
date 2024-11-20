@@ -140,6 +140,7 @@ function App() {
   console.log(`isLoading=${isLoading}, loadingComplete=${loadingComplete}`);
   return (
     <div className="App">
+      
       {sessionLost ? ( // Display session lost overlay if triggered
         <div className="overlay">
           <div className="modal">
@@ -151,6 +152,7 @@ function App() {
         <LoadingScreen onAnimationEnd={handleAnimationEnd} />
       ) : (
         <div className="content">
+             <h1 className="content-title">Wavelength</h1>
           <div className="nickname-container">
             <p>Enter a nickname</p>
             <input

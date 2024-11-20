@@ -20,6 +20,7 @@ const LobbySchema = new mongoose.Schema({
   spectators: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Player' }], // Reference to Player model
   host: { type: mongoose.Schema.Types.ObjectId, ref: 'Player' }, // Host reference
   status: { type: String, enum: ['waiting', 'in-progress', 'finished'], default: 'waiting' },
+  game: { type: mongoose.Schema.Types.ObjectId, ref: 'Game' }, // Reference to the Game model
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -65,6 +66,7 @@ LobbySchema.methods.assignNewHost = function () {
     // No players or spectators left, set host to null
     this.host = null;
   }
+
 };
 
 module.exports = mongoose.model('Lobby', LobbySchema);

@@ -11,10 +11,19 @@ const Lobby = () => {
   const navigate = useNavigate();
   const { isLoading, showLoading, hideLoading } = useLoading();
   const { sessionLost, alertMessage, resetSession } = useContext(SessionContext); // Access session context
-  const [lobby, setLobby] = useState(null);
+
+  const [lobby, setLobby] = useState({
+    game: null,
+    players: [], // Initialize as empty array
+    spectators: [], // Initialize as empty array
+    lobbyCode: '',
+    status: 'waiting',
+  });
+
   const [message, setMessage] = useState('');
   const [loadingComplete, setLoadingComplete] = useState(false);
   const [isSpectator, setIsSpectator] = useState(false);
+  const [isHost, setIsHost] = useState(false); // Track if the current player is the host
 
 useEffect(() => {
   console.log('Lobby.js mounted');
@@ -28,12 +37,26 @@ useEffect(() => {
   });
 
   socket.on('lobbyUpdated', (updatedLobby) => {
-    setLobby(updatedLobby);
-    const player = updatedLobby.players.find(p => p.uuid === playerId);
-    const spectator = updatedLobby.spectators.find(s => s.uuid === playerId);
+    console.log('Lobby updated:', updatedLobby);
+    setLobby({
+      ...updatedLobby,
+      players: updatedLobby?.players || [], // Default to an empty array
+      spectators: updatedLobby?.spectators || [], // Default to an empty array
+      game: updatedLobby?.game || null, // Default to null
+    });
+    setMessage('');
+  
+    const playerId = localStorage.getItem('playerId');
+  
+    // Determine if the current player is the host
+    setIsHost(updatedLobby?.host?.uuid === playerId);
+  
+    // Determine if the player is a spectator
+    const player = updatedLobby?.players?.find((p) => p.uuid === playerId);
+    const spectator = updatedLobby?.spectators?.find((s) => s.uuid === playerId);
     setIsSpectator(!!spectator && !player);
   });
-
+  
 
   return () => {
     console.log('Lobby.js unmounting');
@@ -120,6 +143,25 @@ useEffect(() => {
     }
   }, [lobby, isLoading, loadingComplete, navigate]);
 
+  const handleStartGame = () => {
+    console.log(`Handling the start of the game.`);
+    const playerId = localStorage.getItem('playerId');
+    if (!playerId) {
+        console.error('Player ID not found');
+        return;
+    }
+
+    const player = lobby.players.find((p) => p.uuid === playerId);
+    if (!player) {
+        console.error('Player not found in the lobby.');
+        return;
+    }
+
+    console.log(`Starting Game as player: ${player.nickname}`);
+    socket.emit('startGame', { lobbyCode, player }); // Pass player object
+};
+
+
   return (
     <div className="lobby-app">
       {sessionLost ? ( // Session lost overlay
@@ -133,51 +175,75 @@ useEffect(() => {
         <LoadingScreen onAnimationEnd={handleAnimationEnd} />
       ) : (
         <div className={`content ${loadingComplete ? 'fade-in' : ''}`}>
+
+      {/* Display the secret number */}
+      <div className="secretnumber-container">
+  <p className="secretnumber-label">Secret Number:</p>
+  <div className="secretnumber">
+  {lobby?.game && lobby.game.secretNumber !== null ? lobby.game.secretNumber : "?"}
+</div>
+</div>
+
           {lobby ? (
             <div className="lobbyinfo-container">
               <div className="lobby-header">
                 <h1 className="lobby-code">Lobby Code: {lobby.lobbyCode}</h1>
                 <p className="lobby-status">Status: {lobby.status}</p>
+                            {/* Show Start Game button only if the current player is the host */}
+{/* Show Start Game button only if the current player is the host, the lobby is in 'waiting' status, and there are 2 or more players */}
+{isHost && lobby.status === 'waiting' && lobby.players.length >= 2 && (
+  <button
+    className="lobby-button start-game-button"
+    onClick={handleStartGame}
+  >
+    Start Game
+  </button>
+)}
               </div>
               <div className="player-section">
-                <h2>Players</h2>
-                <ul className="player-list">
-                  {lobby.players.map((player) => (
-                    <li className="player-list-item" key={player._id}>
-                      {player.nickname || 'Unnamed Player'}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="spectator-section">
-                <h2>Spectators</h2>
-                <ul className="spectator-list">
-                  {lobby.spectators.map((spectator) => (
-                    <li className="spectator-list-item" key={spectator._id}>
-                      {spectator.nickname || 'Unnamed Spectator'}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <button
-  className="lobby-button toggle-role-button"
-  onClick={handleToggleSpectate}
->
-  {isSpectator ? 'Join Game' : 'Spectate'}
-</button>
+  <h2>Players</h2>
+  <ul className="player-list">
+    {lobby?.players?.map((player) => (
+      <li className="player-list-item" key={player._id}>
+        {player.nickname || 'Unnamed Player'}
+      </li>
+    )) || <p>No players in the lobby.</p>}
+  </ul>
+</div>
+<div className="spectator-section">
+  <h2>Spectators</h2>
+  <ul className="spectator-list">
+    {lobby?.spectators?.map((spectator) => (
+      <li className="spectator-list-item" key={spectator._id}>
+        {spectator.nickname || 'Unnamed Spectator'}
+      </li>
+    )) || <p>No spectators in the lobby.</p>}
+  </ul>
+</div>
+              <div className="lobby-button-container">
+              {lobby.status !== 'in-progress' && (
+  <button
+    className="lobby-button toggle-role-button"
+    onClick={handleToggleSpectate}
+  >
+    {isSpectator ? 'Join Game' : 'Spectate'}
+  </button>
+)}
 <button
   className="lobby-button"
   onClick={handleReturnToHomepage}
 >
   Return to Homepage
 </button>
+</div>  
             </div>
           ) : (
             <p>{message}</p>
           )}
         </div>
       )}
-    </div>
+</div>  
+
   );
 };
 

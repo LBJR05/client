@@ -11,7 +11,21 @@
   justify-content: center;
   position: relative; /* Ensure the loading screen and content are positioned correctly */
 }
-
+/* Title inside the content box */
+.content-title {
+  font-size: 8vmin; /* Large font for emphasis */
+  font-weight: bold; /* Bold text */
+  text-align: center; /* Center the text */
+  letter-spacing: 1vmin; /* Spread out the letters */
+  color: #ffffff; /* White for contrast */
+  text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.7); /* Subtle shadow */
+  margin: 0;
+  padding-top: 1vmin; /* Adjust spacing from the top */
+  position: relative;
+  top: 0; /* Ensure it's at the top of the content */
+  width: 100%; /* Span the full width */
+  text-transform: uppercase; /* Make text uppercase for a bold presence */
+}
 .App-header {
   display: flex;
   flex-direction: column;

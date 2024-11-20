@@ -21,7 +21,7 @@ router.post('/lobbies', async (req, res) => {
     await newLobby.save();
 
     // Populate and return the created lobby
-    const populatedLobby = await Lobby.findById(newLobby._id).populate('players spectators host');
+    const populatedLobby = await Lobby.findById(newLobby._id).populate('players spectators host game');
     res.status(201).json(populatedLobby);
   } catch (error) {
     console.error('[lobbyRoutes][CreateLobby] Error:', error);
@@ -32,7 +32,7 @@ router.post('/lobbies', async (req, res) => {
 // Endpoint to get a lobby by lobbyCode
 router.get('/lobbies/:lobbyCode', async (req, res) => {
   try {
-    const lobby = await Lobby.findOne({ lobbyCode: req.params.lobbyCode }).populate('players spectators host');
+    const lobby = await Lobby.findOne({ lobbyCode: req.params.lobbyCode }).populate('players spectators host game');
     if (!lobby) {
       return res.status(404).json({ message: 'Lobby not found' });
     }
@@ -56,7 +56,7 @@ router.post('/lobbies/:lobbyCode/join', async (req, res) => {
         return res.status(404).json({ message: 'Player not found' });
       }
       await lobby.save();
-      const updatedLobby = await Lobby.findById(lobby._id).populate('players spectators host');
+      const updatedLobby = await Lobby.findById(lobby._id).populate('players spectators host game');
       res.json(updatedLobby);
     } catch (error) {
       console.error('Error adding player to lobby:', error);
