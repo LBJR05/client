@@ -1,61 +1,64 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import socket from '../socket';
 import { useLoading } from '../LoadingContext';
 import LoadingScreen from './LoadingScreen';
+import { SessionContext } from '../SessionContext'; // Import SessionContext
 import './Lobby.css';
 
 const Lobby = () => {
   const { lobbyCode } = useParams();
   const navigate = useNavigate();
+  const { isLoading, showLoading, hideLoading } = useLoading();
+  const { sessionLost, alertMessage, resetSession } = useContext(SessionContext); // Access session context
   const [lobby, setLobby] = useState(null);
   const [message, setMessage] = useState('');
-  const { isLoading, showLoading, hideLoading } = useLoading();
-  const [loadingComplete, setLoadingComplete] = useState(false); // Animation state
+  const [loadingComplete, setLoadingComplete] = useState(false);
+  const [isSpectator, setIsSpectator] = useState(false);
 
-  useEffect(() => {
-    console.log('Lobby.js mounted');
-  
-    const playerId = localStorage.getItem('playerId');
-    socket.emit('getOrCreatePlayer', { playerId, reconnect: true }); // Ensure reconnect is true
-  
-  
-    socket.on('playerData', ({ playerId }) => {
-      localStorage.setItem('playerId', playerId);
-    });
+useEffect(() => {
+  console.log('Lobby.js mounted');
 
-    socket.on('lobbyUpdated', (updatedLobby) => {
-      setLobby(updatedLobby);
-    });
+  const playerId = localStorage.getItem('playerId');
+    console.log('Emitting getOrCreatePlayer');
+    socket.emit('getOrCreatePlayer', { playerId, reconnect: true });
 
-    // Simplified cleanup that won't trigger disconnection
-    return () => {
-      console.log(`Lobby.js unmounting for lobbyCode: ${lobbyCode}`);
-      socket.off('lobbyUpdated');
-      socket.off('playerData');
-    };
-  }, [lobbyCode]);
+  socket.on('playerData', ({ playerId }) => {
+    localStorage.setItem('playerId', playerId);
+  });
 
-  // Handle returning to the homepage
+  socket.on('lobbyUpdated', (updatedLobby) => {
+    setLobby(updatedLobby);
+    const player = updatedLobby.players.find(p => p.uuid === playerId);
+    const spectator = updatedLobby.spectators.find(s => s.uuid === playerId);
+    setIsSpectator(!!spectator && !player);
+  });
+
+
+  return () => {
+    console.log('Lobby.js unmounting');
+    socket.off('lobbyUpdated');
+    socket.off('playerData');
+  };
+}, [lobbyCode]);
+
+
   const handleReturnToHomepage = () => {
     const playerId = localStorage.getItem('playerId');
-    
-    // Emit a specific event to delete the lobby without disconnecting the socket
+
     socket.emit('deleteLobbyAndNavigate', { lobbyCode, playerId });
-  
-    // Listen for confirmation and navigate without cleanup
+
     socket.once('lobbyDeleted', ({ message }) => {
       console.log(message);
       navigate('/'); // Navigate to homepage
+      // Emit getOrCreatePlayer to refresh nickname
     });
-  
+
     socket.once('error', (err) => {
       console.error(err);
       alert('Error deleting the lobby. Please try again.');
     });
   };
-
-  // Remove the location change effect entirely
 
   useEffect(() => {
     showLoading();
@@ -85,25 +88,29 @@ const Lobby = () => {
     fetchLobby();
 
     socket.on('lobbyUpdated', (updatedLobby) => {
+      console.log('Lobby updated:', updatedLobby);
       setLobby(updatedLobby);
     });
 
     return () => {
       console.log(`Lobby.js unmounting for lobbyCode: ${lobbyCode}`);
       const playerId = localStorage.getItem('playerId');
-      
-      // Only emit leaveLobby if we're not navigating to homepage
+
       if (!window.location.pathname.includes('/room/')) {
         socket.emit('leaveLobby', { lobbyCode, playerId });
       }
-      
+
       socket.off('lobbyUpdated');
     };
   }, [lobbyCode, navigate, showLoading, hideLoading]);
 
-  // Handle animation end
   const handleAnimationEnd = () => {
     setLoadingComplete(true);
+  };
+
+  const handleToggleSpectate = () => {
+    const playerId = localStorage.getItem('playerId');
+    socket.emit('toggleSpectate', { playerId, lobbyCode });
   };
 
   useEffect(() => {
@@ -115,7 +122,14 @@ const Lobby = () => {
 
   return (
     <div className="lobby-app">
-      {isLoading && !loadingComplete ? (
+      {sessionLost ? ( // Session lost overlay
+        <div className="overlay">
+          <div className="modal">
+            <p>{alertMessage}</p>
+            <button onClick={() => resetSession() || window.location.reload()}>Refresh</button>
+          </div>
+        </div>
+      ) : isLoading && !loadingComplete ? (
         <LoadingScreen onAnimationEnd={handleAnimationEnd} />
       ) : (
         <div className={`content ${loadingComplete ? 'fade-in' : ''}`}>
@@ -146,11 +160,17 @@ const Lobby = () => {
                 </ul>
               </div>
               <button
-                className="return-home-button"
-                onClick={handleReturnToHomepage} // Navigate back to homepage
-              >
-                Return to Homepage
-              </button>
+  className="lobby-button toggle-role-button"
+  onClick={handleToggleSpectate}
+>
+  {isSpectator ? 'Join Game' : 'Spectate'}
+</button>
+<button
+  className="lobby-button"
+  onClick={handleReturnToHomepage}
+>
+  Return to Homepage
+</button>
             </div>
           ) : (
             <p>{message}</p>

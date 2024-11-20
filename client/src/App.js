@@ -1,19 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useContext } from 'react';
 import './App.css';
 import { useLoading, LoadingProvider } from './LoadingContext';
 import LoadingScreen from './components/LoadingScreen';
 import socket from './socket';
 import { useNavigate } from 'react-router-dom';
+import { SessionContext } from './SessionContext'; // Import the SessionContext
 
 function App() {
   const { isLoading, showLoading, hideLoading } = useLoading();
+  const { sessionLost, alertMessage, resetSession } = useContext(SessionContext); // Access session management
   const [loadingComplete, setLoadingComplete] = useState(false);
   const [nickname, setNickname] = useState('');
   const [showPopup, setShowPopup] = useState(false);
   const [lobbyCode, setLobbyCode] = useState('');
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState(''); // 'success' or 'error'
-  const [sessionLost, setSessionLost] = useState(false); // Track session loss
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -22,15 +23,13 @@ function App() {
     hideLoading();
 
     const playerId = localStorage.getItem('playerId');
-    if (!socket.connected) {
-      console.log('Emitting getOrCreatePlayer for new connection.');
+      console.log('[App.js] Emitting getOrCreatePlayer');
       socket.emit('getOrCreatePlayer', { playerId, reconnect: true });
-    } else {
-      console.log('Socket already connected. Skipping getOrCreatePlayer.');
-    }
+  
     socket.on('playerData', ({ playerId, nickname }) => {
+      console.log('[App.js] Player data received:', { playerId, nickname });
       localStorage.setItem('playerId', playerId);
-      setNickname(nickname);
+      setNickname(nickname); // Update nickname state
     });
 
     socket.on('nicknameUpdated', ({ newNickname }) => {
@@ -44,18 +43,11 @@ function App() {
       setMessageType('error');
     });
 
-    // Handle session loss
-    socket.on('sessionLost', ({ message }) => {
-      setSessionLost(true);
-      alert(message); // Notify user about session loss
-    });
-
     return () => {
       console.log('Cleaning up App.js listeners.');
       socket.off('playerData');
       socket.off('nicknameUpdated');
       socket.off('nicknameUpdateFailed');
-      socket.off('sessionLost');
     };
   }, [showLoading, hideLoading]);
 
@@ -148,62 +140,60 @@ function App() {
   console.log(`isLoading=${isLoading}, loadingComplete=${loadingComplete}`);
   return (
     <div className="App">
-      {isLoading && !loadingComplete ? (
+      {sessionLost ? ( // Display session lost overlay if triggered
+        <div className="overlay">
+          <div className="modal">
+            <p>{alertMessage}</p>
+            <button onClick={() => resetSession() || window.location.reload()}>Refresh</button>
+          </div>
+        </div>
+      ) : isLoading && !loadingComplete ? (
         <LoadingScreen onAnimationEnd={handleAnimationEnd} />
       ) : (
         <div className="content">
-          {sessionLost ? (
-            <div className="session-lost">
-              <p>Session lost. Please refresh or return to the active session.</p>
-              <button onClick={() => window.location.reload()}>Refresh</button>
-            </div>
-          ) : (
-            <>
-              <div className="nickname-container">
-                <p>Enter a nickname</p>
-                <input
-                  type="text"
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  placeholder="Enter your nickname"
-                  className="nickname-input"
-                />
-                <button className="nickname-button" onClick={handleChangeNickname}>
-                  Change Nickname
-                </button>
-                {message && <p className={`message ${messageType}`}>{message}</p>}
-              </div>
-              <div className="lobby-container">
-                <button className="lobby-button" onClick={handleCreateRoom}>
-                  Create Room
-                </button>
-                <button className="lobby-button" onClick={() => setShowPopup(true)}>
-                  Join Room
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-      {showPopup && (
-        <div className="popup-overlay">
-          <div className="popup">
-            <button className="popup-close-button" onClick={() => setShowPopup(false)}>
-              ×
-            </button>
-            <p>Enter the lobby code:</p>
+          <div className="nickname-container">
+            <p>Enter a nickname</p>
             <input
               type="text"
-              value={lobbyCode}
-              onChange={(e) => setLobbyCode(e.target.value)}
-              placeholder="Lobby Code"
-              className="lobby-input"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              placeholder="Enter your nickname"
+              className="nickname-input"
             />
-            <button className="popup-button" onClick={handleJoinLobby}>
-              Submit
+            <button className="nickname-button" onClick={handleChangeNickname}>
+              Change Nickname
             </button>
             {message && <p className={`message ${messageType}`}>{message}</p>}
           </div>
+          <div className="lobby-container">
+            <button className="lobby-button" onClick={handleCreateRoom}>
+              Create Room
+            </button>
+            <button className="lobby-button" onClick={() => setShowPopup(true)}>
+              Join Room
+            </button>
+          </div>
+          {showPopup && (
+            <div className="popup-overlay">
+              <div className="popup">
+                <button className="popup-close-button" onClick={() => setShowPopup(false)}>
+                  ×
+                </button>
+                <p>Enter the lobby code:</p>
+                <input
+                  type="text"
+                  value={lobbyCode}
+                  onChange={(e) => setLobbyCode(e.target.value)}
+                  placeholder="Lobby Code"
+                  className="lobby-input"
+                />
+                <button className="popup-button" onClick={handleJoinLobby}>
+                  Submit
+                </button>
+                {message && <p className={`message ${messageType}`}>{message}</p>}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -6,31 +6,33 @@ const Player = require('../models/Player');
 
 // Endpoint to create a new lobby
 router.post('/lobbies', async (req, res) => {
-    try {
-      const { playerId } = req.body; // Include the player's ID in the request body
-      const newLobby = new Lobby(); // Create a new lobby
-      await newLobby.save();
-  
-      // Automatically add the creator to the lobby
-      const lobbyCode = newLobby.lobbyCode;
-      const player = await Player.findOne({ uuid: playerId }); // Find the player
-      if (player) {
-        newLobby.addPlayer(player); // Add the player to the lobby
-        await newLobby.save();
-      }
-  
-      const populatedLobby = await Lobby.findById(newLobby._id).populate('players spectators');
-      res.status(201).json(populatedLobby); // Return the updated lobby with the player
-    } catch (error) {
-      console.error('Error creating lobby:', error);
-      res.status(500).json({ message: 'Internal server error' });
+  try {
+    const { playerId } = req.body;
+    const player = await Player.findOne({ uuid: playerId });
+    if (!player) {
+      return res.status(404).json({ message: 'Player not found' });
     }
-  });
-  
+
+    // Create a new lobby
+    const newLobby = new Lobby({
+      host: player._id, // Assign the player as the host
+    });
+
+    await newLobby.save();
+
+    // Populate and return the created lobby
+    const populatedLobby = await Lobby.findById(newLobby._id).populate('players spectators host');
+    res.status(201).json(populatedLobby);
+  } catch (error) {
+    console.error('[lobbyRoutes][CreateLobby] Error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Endpoint to get a lobby by lobbyCode
 router.get('/lobbies/:lobbyCode', async (req, res) => {
   try {
-    const lobby = await Lobby.findOne({ lobbyCode: req.params.lobbyCode }).populate('players spectators');
+    const lobby = await Lobby.findOne({ lobbyCode: req.params.lobbyCode }).populate('players spectators host');
     if (!lobby) {
       return res.status(404).json({ message: 'Lobby not found' });
     }
@@ -40,6 +42,7 @@ router.get('/lobbies/:lobbyCode', async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 });
+
 
 router.post('/lobbies/:lobbyCode/join', async (req, res) => {
     try {
@@ -52,9 +55,8 @@ router.post('/lobbies/:lobbyCode/join', async (req, res) => {
       if (!player) {
         return res.status(404).json({ message: 'Player not found' });
       }
-      lobby.addPlayer(player); // Add player to the lobby
       await lobby.save();
-      const updatedLobby = await Lobby.findById(lobby._id).populate('players spectators');
+      const updatedLobby = await Lobby.findById(lobby._id).populate('players spectators host');
       res.json(updatedLobby);
     } catch (error) {
       console.error('Error adding player to lobby:', error);

@@ -18,6 +18,7 @@ const LobbySchema = new mongoose.Schema({
   lobbyCode: { type: String, default: generateRandomWord, unique: true }, // Generate a random lobbyCode
   players: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Player' }], // Reference to Player model
   spectators: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Player' }], // Reference to Player model
+  host: { type: mongoose.Schema.Types.ObjectId, ref: 'Player' }, // Host reference
   status: { type: String, enum: ['waiting', 'in-progress', 'finished'], default: 'waiting' },
   createdAt: { type: Date, default: Date.now },
 });
@@ -32,8 +33,8 @@ LobbySchema.methods.addPlayer = function (player) {
 
 // Method to remove a player from the lobby
 LobbySchema.methods.removePlayer = function (playerId) {
-    this.players = this.players.filter(id => !id.equals(playerId));
-  };
+  this.players = this.players.filter(id => !id.equals(playerId));
+};
 
 // Method to add a spectator to the lobby
 LobbySchema.methods.addSpectator = function (spectator) {
@@ -50,7 +51,20 @@ LobbySchema.methods.removeSpectator = function (spectatorId) {
 
 // Method to check if the lobby is empty
 LobbySchema.methods.isEmpty = function () {
-  return this.players.length === 0;
+  return this.players.length === 0 && this.spectators.length === 0;
+};
+
+// Method to assign a new host
+LobbySchema.methods.assignNewHost = function () {
+  const eligibleHosts = [...this.players, ...this.spectators]; // Combine players and spectators
+  if (eligibleHosts.length > 0) {
+    // Randomly pick a new host from eligible hosts
+    const randomIndex = Math.floor(Math.random() * eligibleHosts.length);
+    this.host = eligibleHosts[randomIndex];
+  } else {
+    // No players or spectators left, set host to null
+    this.host = null;
+  }
 };
 
 module.exports = mongoose.model('Lobby', LobbySchema);
