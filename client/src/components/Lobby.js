@@ -23,12 +23,13 @@ const Lobby = () => {
   const [message, setMessage] = useState('');
   const [loadingComplete, setLoadingComplete] = useState(false);
   const [isSpectator, setIsSpectator] = useState(false);
-  const [isHost, setIsHost] = useState(false); // Track if the current player is the host
+  const [isHost, setIsHost] = useState(false); // Track if the current player is the host\
+  const playerId = localStorage.getItem('playerId');
+  const isHotseat = lobby?.game?.hotseat && lobby?.game?.hotseat.uuid === playerId;
 
 useEffect(() => {
   console.log('Lobby.js mounted');
 
-  const playerId = localStorage.getItem('playerId');
     console.log('Emitting getOrCreatePlayer');
     socket.emit('getOrCreatePlayer', { playerId, reconnect: true });
 
@@ -66,22 +67,21 @@ useEffect(() => {
 }, [lobbyCode]);
 
 
-  const handleReturnToHomepage = () => {
-    const playerId = localStorage.getItem('playerId');
+const handleReturnToHomepage = () => {
+  console.log('Return to Homepage button clicked');
+  const playerId = localStorage.getItem('playerId');
+  socket.emit('removePlayerFromLobby', { playerId, lobbyCode });
 
-    socket.emit('deleteLobbyAndNavigate', { lobbyCode, playerId });
+  socket.once('playerRemoved', (response) => {
+    console.log(response.message);
+    navigate('/'); // Navigate to homepage
+  });
 
-    socket.once('lobbyDeleted', ({ message }) => {
-      console.log(message);
-      navigate('/'); // Navigate to homepage
-      // Emit getOrCreatePlayer to refresh nickname
-    });
-
-    socket.once('error', (err) => {
-      console.error(err);
-      alert('Error deleting the lobby. Please try again.');
-    });
-  };
+  socket.once('error', (err) => {
+    console.error(err);
+    alert('Error removing the player. Please try again.');
+  });
+};
 
   useEffect(() => {
     showLoading();
@@ -180,8 +180,8 @@ useEffect(() => {
       <div className="secretnumber-container">
   <p className="secretnumber-label">Secret Number:</p>
   <div className="secretnumber">
-  {lobby?.game && lobby.game.secretNumber !== null ? lobby.game.secretNumber : "?"}
-</div>
+    {lobby?.game && lobby.game.secretNumber !== null && !isHotseat ? lobby.game.secretNumber : "?"}
+  </div>
 </div>
 
           {lobby ? (

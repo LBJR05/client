@@ -5,6 +5,8 @@ const GameSchema = new mongoose.Schema({
   secretNumber: { type: Number, default: null }, // The secret number for the game
   rounds: { type: Number, default: 1 }, // Example: Number of rounds in the game
   status: { type: String, enum: ['waiting', 'in-progress', 'finished'], default: 'waiting' }, // Game status
+  hotseat: { type: mongoose.Schema.Types.ObjectId, ref: 'Player', default: null }, // Hotseat player
+  usedHotseatPlayers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Player' }], // Track players who have been in the hotseat
   createdAt: { type: Date, default: Date.now },
 });
 

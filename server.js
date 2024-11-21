@@ -79,18 +79,81 @@ const reconnectingSockets = new Set();
 const disconnectedPlayers = new Map(); // Key: lobbyCode, Value: { playerId, disconnectTime }
 const REJOIN_TIME_LIMIT = 10000; // 10 seconds
 
+async function deleteGame(gameId) {
+  try {
+    const game = await Game.findById(gameId);
+    if (game) {
+      console.log(`[Helper][deleteGame] Deleting game with ID: ${gameId}`);
+      await Game.deleteOne({ _id: gameId });
+    } else {
+      console.log(`[Helper][deleteGame] Game with ID ${gameId} not found.`);
+    }
+  } catch (error) {
+    console.error(`[Helper][deleteGame] Error deleting game with ID ${gameId}:`, error);
+  }
+}
+
 // Helper functions
 async function deleteLobby(lobby) {
   try {
-    const currentLobby = await Lobby.findById(lobby._id).populate('players spectators');
-    if (currentLobby && currentLobby.isEmpty()) {
-      console.log(`[Helper][deleteLobby] Deleting empty lobby ${currentLobby.lobbyCode}`);
-      await Lobby.deleteOne({ _id: currentLobby._id });
-      io.to(lobby.lobbyCode).emit('lobbyDeleted', { message: `Lobby ${lobby.lobbyCode} has been deleted.` });
+    const currentLobby = await Lobby.findById(lobby._id).populate('game players spectators');
+    if (currentLobby) {
+      // Delete the associated game if it exists
+      if (currentLobby.game) {
+        await deleteGame(currentLobby.game._id);
+      }
+
+      // Check if the lobby is empty before deletion
+      if (currentLobby.players.length === 0 && currentLobby.spectators.length === 0) {
+        console.log(`[Helper][deleteLobby] Deleting empty lobby ${currentLobby.lobbyCode}`);
+        await Lobby.deleteOne({ _id: currentLobby._id });
+        io.to(lobby.lobbyCode).emit('lobbyDeleted', { message: `Lobby ${currentLobby.lobbyCode} has been deleted.` });
+      }
     }
   } catch (error) {
     console.error(`[Helper][deleteLobby] Error deleting lobby ${lobby.lobbyCode}:`, error);
   }
+}
+
+// In server.js or a helper function
+async function assignHotseat(game) {
+  try {
+    const lobby = await Lobby.findById(game.lobby).populate('players');
+    const availablePlayers = lobby.players.filter(
+      (player) => !game.usedHotseatPlayers.includes(player._id)
+    );
+
+    if (availablePlayers.length > 0) {
+      const randomIndex = Math.floor(Math.random() * availablePlayers.length);
+      game.hotseat = availablePlayers[randomIndex]._id;
+      game.usedHotseatPlayers.push(game.hotseat);
+      await game.save();
+
+      console.log(`[Game] Assigned hotseat to player ${game.hotseat}`);
+    } else {
+      console.log('[Game] No players available for the hotseat.');
+      game.hotseat = null;
+      await game.save();
+    }
+  } catch (error) {
+    console.error('[Game][assignHotseat] Error:', error);
+  }
+}
+
+async function nextHotseat(game) {
+  await assignHotseat(game);
+
+  const updatedLobby = await Lobby.findById(game.lobby)
+    .populate({
+      path: 'game',
+      populate: {
+        path: 'hotseat',
+        model: 'Player',
+      },
+    })
+    .populate('players spectators host');
+
+  io.to(updatedLobby.lobbyCode).emit('lobbyUpdated', updatedLobby);
 }
 
 async function removePlayerFromLobby(playerId, lobbyCode) {
@@ -130,11 +193,9 @@ async function removePlayerFromLobby(playerId, lobbyCode) {
       if (lobby.status === 'in-progress' && lobby.players.length === 1) {
           console.log(`[Helper][removePlayerFromLobby] Only one player remains in lobby ${lobbyCode}. Starting cancellation timer.`);
 
-          // Wait 10 seconds before canceling the game
           setTimeout(async () => {
               const refreshedLobby = await Lobby.findById(lobby._id).populate('players spectators game');
               if (refreshedLobby.players.length === 1 && refreshedLobby.status === 'in-progress') {
-                  // Cancel the game and reset the lobby
                   const game = await Game.findById(refreshedLobby.game._id);
                   if (game) {
                       game.end();
@@ -146,21 +207,47 @@ async function removePlayerFromLobby(playerId, lobbyCode) {
                   await refreshedLobby.save();
 
                   console.log(`[Helper][removePlayerFromLobby] Game canceled in lobby ${lobbyCode}.`);
+const updatedLobby = await Lobby.findById(lobby._id)
+  .populate({
+    path: 'game',
+    populate: {
+      path: 'hotseat',
+      model: 'Player',
+    },
+  })
+  .populate('players spectators host');
 
-                  // Notify clients of the updated lobby state
-                  const updatedLobby = await Lobby.findById(refreshedLobby._id).populate('players spectators host game');
-                  io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
+io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
               }
           }, 10000); // 10-second delay
       }
 
+      // Add 10-second delayed logic to check if the lobby is empty and delete it
+      setTimeout(async () => {
+          const currentLobby = await Lobby.findById(lobby._id).populate('players spectators');
+          if (currentLobby && currentLobby.players.length === 0 && currentLobby.spectators.length === 0) {
+              console.log(`[Helper][removePlayerFromLobby] Lobby ${lobbyCode} is empty. Attempting to delete.`);
+              await deleteLobby(currentLobby); // Call deleteLobby function
+          }
+      }, 10000); // 10-second delay
+
       // Notify all clients about the updated lobby state
-      const updatedLobby = await Lobby.findById(lobby._id).populate('players spectators host game');
-      io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
+      const updatedLobby = await Lobby.findById(lobby._id)
+      .populate({
+        path: 'game',
+        populate: {
+          path: 'hotseat',
+          model: 'Player',
+        },
+      })
+      .populate('players spectators host');
+    
+    io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
   } catch (error) {
       console.error(`[Helper][removePlayerFromLobby] Error removing player ${playerId} from lobby ${lobbyCode}:`, error);
   }
 }
+
 
 
 function generateRandomNickname() {
@@ -289,29 +376,6 @@ io.on('connection', (socket) => {
     }
 });
 
-  
-
-  socket.on('deleteLobbyAndNavigate', async ({ lobbyCode, playerId }) => {
-    console.log(`[Socket][deleteLobbyAndNavigate] Received lobbyCode: ${lobbyCode}, playerId: ${playerId}`);
-  
-    try {
-      const lobby = await Lobby.findOne({ lobbyCode }).populate('players spectators');
-      if (!lobby) {
-        console.log(`[Socket][deleteLobbyAndNavigate] Lobby ${lobbyCode} not found.`);
-        return socket.emit('error', { message: 'Lobby not found.' });
-      }
-  
-      // Use removePlayerFromLobby to handle everything, including host reassignment and empty lobby deletion
-      await removePlayerFromLobby(playerId, lobbyCode);
-  
-      // Notify the client that the operation was successful
-      socket.emit('lobbyDeleted', { message: 'Lobby deleted successfully.' });
-    } catch (error) {
-      console.error(`[Socket][deleteLobbyAndNavigate] Error:`, error);
-      socket.emit('error', { message: 'Failed to delete the lobby.' });
-    }
-  });
-
   socket.on('joinLobby', async ({ lobbyCode, playerId }) => {
     console.log(`[Socket][joinLobby] Received lobbyCode: ${lobbyCode}, playerId: ${playerId}`);
     
@@ -352,8 +416,17 @@ io.on('connection', (socket) => {
       socket.state.lobbyCode = lobbyCode;
       socket.join(lobbyCode);
   
-      const updatedLobby = await Lobby.findById(lobby._id).populate('players spectators host game');
-      io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
+      const updatedLobby = await Lobby.findById(lobby._id)
+      .populate({
+        path: 'game',
+        populate: {
+          path: 'hotseat',
+          model: 'Player',
+        },
+      })
+      .populate('players spectators host');
+    
+    io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
     } catch (error) {
       console.error(`[Socket][joinLobby] Error:`, error);
       socket.emit('error', { message: 'Failed to join the lobby.' });
@@ -411,7 +484,32 @@ io.on('connection', (socket) => {
         }, REJOIN_TIME_LIMIT);
     }
 });
-  
+
+    // Add the event listener for 'removePlayerFromLobby'
+    socket.on('removePlayerFromLobby', async ({ playerId, lobbyCode }) => {
+      console.log(`[Socket][removePlayerFromLobby] playerId: ${playerId}, lobbyCode: ${lobbyCode}`);
+      try {
+          // Call the helper function to remove the player
+          await removePlayerFromLobby(playerId, lobbyCode);
+
+          const updatedLobby = await Lobby.findOne({ lobbyCode }).populate({
+            path: 'game',
+            populate: {
+              path: 'hotseat',
+              model: 'Player',
+            },
+          })
+          .populate('players spectators host');
+        
+        io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
+
+          // Optionally notify the specific socket that emitted the event
+          socket.emit('playerRemoved', { message: 'Player successfully removed.' });
+      } catch (error) {
+          console.error(`[Socket][removePlayerFromLobby] Error:`, error);
+          socket.emit('error', { message: 'Failed to remove the player from the lobby.' });
+      }
+  });
   
 
   socket.on('toggleSpectate', async ({ lobbyCode, playerId }) => {
@@ -446,8 +544,17 @@ io.on('connection', (socket) => {
   
       await lobby.save();
   
-      const updatedLobby = await Lobby.findById(lobby._id).populate('players spectators host game');
-      io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
+      const updatedLobby = await Lobby.findById(lobby._id)
+      .populate({
+        path: 'game',
+        populate: {
+          path: 'hotseat',
+          model: 'Player',
+        },
+      })
+      .populate('players spectators host');
+    
+    io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
     } catch (error) {
       console.error(`[Socket][toggleSpectate] Error toggling spectate for player ${playerId}:`, error);
       socket.emit('error', { message: 'Failed to toggle role.' });
@@ -482,11 +589,24 @@ io.on('connection', (socket) => {
         lobby.game = game._id;
         await lobby.save();
 
+          // Assign the first hotseat
+        await assignHotseat(game);
+
+
         console.log(`[Socket][startGame] Game started for lobby: ${lobbyCode}, player: ${player.uuid}`);
 
         // Notify all clients
-        const updatedLobby = await Lobby.findById(lobby._id).populate('players spectators host game');
-        io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
+        const updatedLobby = await Lobby.findById(lobby._id)
+        .populate({
+          path: 'game',
+          populate: {
+            path: 'hotseat',
+            model: 'Player',
+          },
+        })
+        .populate('players spectators host');
+    
+      io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
     } catch (error) {
         console.error(`[Socket][startGame] Error: ${error.message}`);
         socket.emit('error', { message: error.message || 'Failed to start the game.' });
