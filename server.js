@@ -29,6 +29,7 @@ const io = socketIo(server, {
   pingInterval: 2500,
 });
 
+
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
@@ -114,48 +115,6 @@ async function deleteLobby(lobby) {
     console.error(`[Helper][deleteLobby] Error deleting lobby ${lobby.lobbyCode}:`, error);
   }
 }
-
-// In server.js or a helper function
-async function assignHotseat(game) {
-  try {
-    const lobby = await Lobby.findById(game.lobby).populate('players');
-    const availablePlayers = lobby.players.filter(
-      (player) => !game.usedHotseatPlayers.includes(player._id)
-    );
-
-    if (availablePlayers.length > 0) {
-      const randomIndex = Math.floor(Math.random() * availablePlayers.length);
-      game.hotseat = availablePlayers[randomIndex]._id;
-      game.usedHotseatPlayers.push(game.hotseat);
-      await game.save();
-
-      console.log(`[Game] Assigned hotseat to player ${game.hotseat}`);
-    } else {
-      console.log('[Game] No players available for the hotseat.');
-      game.hotseat = null;
-      await game.save();
-    }
-  } catch (error) {
-    console.error('[Game][assignHotseat] Error:', error);
-  }
-}
-
-async function nextHotseat(game) {
-  await assignHotseat(game);
-
-  const updatedLobby = await Lobby.findById(game.lobby)
-    .populate({
-      path: 'game',
-      populate: {
-        path: 'hotseat',
-        model: 'Player',
-      },
-    })
-    .populate('players spectators host');
-
-  io.to(updatedLobby.lobbyCode).emit('lobbyUpdated', updatedLobby);
-}
-
 async function removePlayerFromLobby(playerId, lobbyCode) {
   try {
       // Find the lobby
@@ -289,6 +248,91 @@ async function togglePlayerSpectate(playerId, lobbyCode) {
   }
 }
 
+const clearDatabases = async () => {
+  try {
+    await Lobby.deleteMany({});
+    await Game.deleteMany({});
+    console.log('[Server] Cleared Lobby and Game databases');
+  } catch (error) {
+    console.error('[Server] Error clearing databases:', error);
+  }
+};
+
+// GAME FUNCTIONS
+const shuffleArray = (array) => {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+};
+
+const startRound = async (lobby, roundNumber) => {
+  try {
+    console.log(`[startRound] Starting round ${roundNumber + 1} for lobbyCode: ${lobby.lobbyCode}`);
+    const game = await Game.findById(lobby.game).populate('hotseat');
+    if (!game) {
+      throw new Error('Game not found');
+    }
+
+    // Check if all rounds are completed
+    if (roundNumber >= game.rounds) {
+      game.status = 'finished';
+      await game.save();
+      console.log(`[startRound] All rounds completed for lobbyCode: ${lobby.lobbyCode}`);
+      return;
+    }
+
+    // Determine the hotseat player for this round using the shuffled order
+    const hotseatPlayerId = game.shuffledPlayers[roundNumber];
+    const hotseatPlayer = await Player.findById(hotseatPlayerId);
+    game.hotseat = hotseatPlayer;
+
+    // Generate a new secret number only if it's the first round or a new round
+    if (roundNumber === game.roundsPlayed) {
+      game.generateSecretNumber(); // Generate a new secret number for each round
+    }
+
+    await game.save();
+
+    console.log(`[startRound] Round ${roundNumber + 1} started for lobbyCode: ${lobby.lobbyCode}`);
+    console.log(`[startRound] Hotseat player: ${hotseatPlayer.nickname}`);
+    console.log(`[startRound] Secret number: ${game.secretNumber}`);
+
+    // Emit the round event to all clients in the lobby except the hotseat player
+    lobby.players.forEach(player => {
+      if (player.equals(hotseatPlayer._id)) {
+        io.to(player.socketId).emit('roundStarted', {
+          roundNumber,
+          hotseatPlayer,
+          secretNumber: null, // Do not send the secret number to the hotseat player
+        });
+      } else {
+        io.to(player.socketId).emit('roundStarted', {
+          roundNumber,
+          hotseatPlayer,
+          secretNumber: game.secretNumber,
+        });
+      }
+    });
+
+    // Emit the updated lobby to all clients
+    const updatedLobby = await Lobby.findById(lobby._id)
+      .populate({
+        path: 'game',
+        populate: {
+          path: 'hotseat',
+          model: 'Player',
+        },
+      })
+      .populate('players spectators host');
+
+    io.to(lobby.lobbyCode).emit('lobbyUpdated', updatedLobby);
+    console.log(`[startRound] Lobby updated for lobbyCode: ${lobby.lobbyCode}`);
+  } catch (error) {
+    console.error(`[startRound] Error starting round for lobbyCode ${lobby.lobbyCode}:`, error);
+  }
+};
 // WebSocket connections
 io.on('connection', (socket) => {
   console.log('[Socket][Connection] New client connected:', socket.id);
@@ -561,42 +605,45 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('startGame', async ({ lobbyCode, player }) => {
+  socket.on('startGame', async ({ lobbyCode, playerId }) => {
+    console.log(`[startGame] Received start game request for lobbyCode: ${lobbyCode}, playerId: ${playerId}`);
+  
     try {
-        const lobby = await Lobby.findOne({ lobbyCode }).populate('players host game');
-        if (!lobby) {
-            return socket.emit('error', { message: 'Lobby not found.' });
-        }
-
-        if (!lobby.host.equals(player._id)) {
-            return socket.emit('error', { message: 'Only the host can start the game.' });
-        }
-
-        if (lobby.players.length < 2) {
-            return socket.emit('error', { message: 'At least 2 players are required to start the game.' });
-        }
-
-        if (lobby.game) {
-            return socket.emit('error', { message: 'A game is already in progress.' });
-        }
-
-        // Create and start the game
-        const game = new Game({ lobby: lobby._id });
-        game.start(); // Set the game state to in-progress and generate secret number
-        await game.save();
-
-        lobby.status = 'in-progress';
-        lobby.game = game._id;
-        await lobby.save();
-
-          // Assign the first hotseat
-        await assignHotseat(game);
-
-
-        console.log(`[Socket][startGame] Game started for lobby: ${lobbyCode}, player: ${player.uuid}`);
-
-        // Notify all clients
-        const updatedLobby = await Lobby.findById(lobby._id)
+      const lobby = await Lobby.findOne({ lobbyCode }).populate('players spectators host');
+      const player = await Player.findOne({ uuid: playerId });
+  
+      if (!lobby || !player) {
+        console.log('[startGame] Invalid lobby or player ID');
+        return socket.emit('error', { message: 'Invalid lobby or player ID' });
+      }
+  
+      // Check if the player is the host
+      if (!lobby.host.equals(player._id)) {
+        console.log('[startGame] Only the host can start the game');
+        return socket.emit('error', { message: 'Only the host can start the game' });
+      }
+  
+      // Shuffle the players
+      const shuffledPlayers = shuffleArray([...lobby.players]);
+  
+      // Create a new Game object
+      const newGame = new Game({
+        lobby: lobby._id,
+        status: 'in-progress',
+        rounds: lobby.players.length, // Set the number of rounds to match the number of players
+        shuffledPlayers, // Store the shuffled order of players
+      });
+  
+      // Save the new Game object
+      await newGame.save();
+  
+      // Update the lobby with the new game and change its status
+      lobby.game = newGame._id;
+      lobby.status = 'in-progress';
+      await lobby.save();
+  
+      // Populate the lobby with the new game details
+      const updatedLobby = await Lobby.findById(lobby._id)
         .populate({
           path: 'game',
           populate: {
@@ -605,53 +652,80 @@ io.on('connection', (socket) => {
           },
         })
         .populate('players spectators host');
-    
+  
+      // Emit the updated lobby to all clients in the lobby
       io.to(lobbyCode).emit('lobbyUpdated', updatedLobby);
+      console.log(`[startGame] Game started for lobbyCode: ${lobbyCode}`);
+      console.log(`[startGame] Lobby Details:`, JSON.stringify(updatedLobby, null, 2));
+      console.log(`[startGame] Game Details:`, JSON.stringify(newGame, null, 2));
+  
+      // Start the first round
+      startRound(lobby, 0);
     } catch (error) {
-        console.error(`[Socket][startGame] Error: ${error.message}`);
-        socket.emit('error', { message: error.message || 'Failed to start the game.' });
-    }
-});
-
-  
-  socket.on('endGame', async ({ lobbyCode }) => {
-    try {
-      const lobby = await Lobby.findOne({ lobbyCode }).populate('game');
-      if (!lobby || !lobby.game) {
-        return socket.emit('error', { message: 'No active game found.' });
-      }
-  
-      const playerId = socket.state.playerId;
-      if (!playerId || !lobby.host.equals(playerId)) {
-        return socket.emit('error', { message: 'Only the host can end the game.' });
-      }
-  
-      // End the game
-      const game = await Game.findById(lobby.game._id);
-      game.end();
-      await game.save();
-  
-      // Reset the lobby's game reference and status
-      lobby.status = 'waiting';
-      lobby.game = null;
-      await lobby.save();
-  
-      console.log(`[Game][endGame] Game ended for lobby ${lobbyCode}.`);
-  
-      // Notify all clients
-      io.to(lobbyCode).emit('lobbyUpdated', {
-        lobbyCode,
-        game: null,
-        lobbyStatus: lobby.status,
-      });
-    } catch (error) {
-      console.error(`[Socket][endGame] Error:`, error);
-      socket.emit('error', { message: error.message || 'Failed to end the game.' });
+      console.error(`[startGame] Error starting game for lobbyCode ${lobbyCode}:`, error);
+      socket.emit('error', { message: 'Failed to start the game.' });
     }
   });
+  socket.on('nextRound', async ({ lobbyCode, roundNumber }) => {
+    console.log(`[nextRound] Received next round request for lobbyCode: ${lobbyCode}, roundNumber: ${roundNumber}`);
   
+    try {
+      const lobby = await Lobby.findOne({ lobbyCode }).populate('players spectators host');
+      if (!lobby) {
+        console.log('[nextRound] Invalid lobby code');
+        return socket.emit('error', { message: 'Invalid lobby code' });
+      }
+  
+      const game = await Game.findById(lobby.game);
+      if (!game) {
+        console.log('[nextRound] Game not found');
+        return socket.emit('error', { message: 'Game not found' });
+      }
+  
+      // Validate the round number
+      if (roundNumber !== game.roundsPlayed + 1) {
+        console.log(`[nextRound] Invalid round number: ${roundNumber}, expected: ${game.roundsPlayed + 1}`);
+        return socket.emit('error', { message: 'Invalid round number' });
+      }
+  
+      // Increment the rounds played
+      game.roundsPlayed += 1;
+  
+      // Check if all rounds are completed
+      if (game.roundsPlayed >= game.rounds) {
+        game.status = 'finished';
+        await game.save();
+        console.log(`[nextRound] All rounds completed for lobbyCode: ${lobbyCode}`);
+        io.to(lobbyCode).emit('gameFinished', { message: 'Game finished' });
+  
+        // Delete the game and update the lobby
+        await Game.deleteOne({ _id: game._id });
+        lobby.status = 'finished';
+        lobby.game = null;
+        await lobby.save();
+  
+        // Emit the updated lobby to all clients
+        const updatedLobby = await Lobby.findById(lobby._id)
+          .populate('players spectators host');
+  
+        io.to(lobby.lobbyCode).emit('lobbyUpdated', updatedLobby);
+        console.log(`[nextRound] Lobby updated for lobbyCode: ${lobby.lobbyCode}`);
+        return;
+      }
+  
+      await game.save();
+  
+      console.log(`[nextRound] Starting next round ${game.roundsPlayed} for lobbyCode: ${lobbyCode}`);
+      startRound(lobby, game.roundsPlayed);
+    } catch (error) {
+      console.error(`[nextRound] Error starting next round for lobbyCode ${lobbyCode}:`, error);
+      socket.emit('error', { message: 'Failed to start the next round.' });
+    }
+  });
 });
-
 // Start server
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`[Server] Running on port ${PORT}`));
+
+clearDatabases().then(() => {
+  server.listen(PORT, () => console.log(`[Server] Running on port ${PORT}`));
+});

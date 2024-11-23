@@ -256,3 +256,208 @@ body {
   color: #4caf50; /* Green color for emphasis */
   text-align: center;
 }
+
+/* Game Chat Div */
+.game-chat-container {
+  position: absolute;
+  bottom: 6vh;
+  left: 22vw;
+  width: 60vw;
+  height: 30vh;
+  background-color: #3b3f45;
+  border-radius: 1vmin;
+  box-shadow: 0px -4px 15px rgba(0, 0, 0, 0.3);
+  padding: 1vmin;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1vmin;
+}
+
+.chat-messages {
+  flex-grow: 1;
+  padding: 1vmin;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1vmin;
+}
+
+.chat-message {
+  max-width: 75%;
+  padding: 1vmin;
+  border-radius: 1vmin;
+  font-size: 1.8vmin;
+  line-height: 1.5;
+  box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.2);
+  word-wrap: break-word;
+}
+
+.chat-message.system {
+  align-self: center;
+  background-color: #2d2f33;
+  color: #61dafb;
+  font-style: italic;
+  font-weight: bold;
+}
+
+.chat-message.other {
+  align-self: flex-start;
+  background-color: #2d2f33;
+  color: white;
+}
+
+.chat-message.event {
+  align-self: center;
+  background-color: #ffcc00;
+  color: #282c34;
+  font-weight: bold;
+}
+
+/* Game Controls Div */
+.game-controls-container {
+  position: absolute;
+  top: 20vh;
+  left: 22vw;
+  width: 60vw;
+  height: 30vh;
+  background-color: #3b3f45;
+  border-radius: 1vmin;
+  padding: 1vmin;
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.game-controls-container h2 {
+  font-size: 2.5vmin;
+  color: #61dafb;
+}
+
+.game-controls-container button {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 0.5vmin;
+  padding: 1vmin 2vmin;
+  font-size: 2vmin;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.game-controls-container button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.5);
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+/* Wavelength title */
+.wavelength-title {
+  position: absolute;
+  top: 2vmin; /* Centered at the top */
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8vmin; /* Large and bold */
+  font-weight: bold;
+  color: white;
+  font-family: 'Orbitron', sans-serif; /* Cool futuristic font */
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.8), 
+               0 0 20px rgba(255, 255, 255, 0.6), 
+               0 0 30px rgba(255, 255, 255, 0.4); /* Glowing effect */
+  z-index: 100; /* Ensure it's above other elements */
+}
+
+.game-phase-container select,
+.game-phase-container input[type="text"],
+.game-phase-container button {
+  margin: 1vmin;
+  padding: 0.8vmin;
+  font-size: 1.8vmin;
+}
+
+.game-phase-container select {
+  background-color: #3b3f45;
+  color: white;
+  border: none;
+  border-radius: 0.5vmin;
+  width: 100%; /* Full width */
+}
+
+.game-phase-container input[type="text"] {
+  background-color: #3b3f45;
+  color: white;
+  border: none;
+  border-radius: 0.5vmin;
+  width: calc(100% - 2vmin);
+}
+
+.game-phase-container button {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 0.5vmin;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.game-phase-container button:hover {
+  background-color: #45a049;
+}
+
+/* Default styles for inputs and buttons */
+.game-controls-container input[type="text"],
+.game-controls-container button {
+  visibility: hidden; /* Hidden by default */
+  margin: 1vmin 0;
+  padding: 1vmin;
+  font-size: 1.8vmin;
+  border: none;
+  border-radius: 0.5vmin;
+}
+
+/* Styles for visible elements */
+.game-controls-container input[type="text"].visible,
+.game-controls-container button.visible {
+  visibility: visible;
+}
+
+/* Dropdown styling */
+.game-controls-container select {
+  margin: 1vmin 0;
+  padding: 1vmin;
+  font-size: 1.8vmin;
+  background-color: #3b3f45;
+  color: white;
+  border: none;
+  border-radius: 0.5vmin;
+}
+
+/* Button hover and disabled states */
+.game-controls-container button {
+  background-color: #4caf50;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.game-controls-container button:hover {
+  background-color: #45a049;
+}
+
+.game-controls-container button:disabled {
+  background-color: #888;
+  cursor: not-allowed;
+}
+
+/* Input styling */
+.game-controls-container input[type="text"] {
+  background-color: #3b3f45;
+  color: white;
+  border: none;
+  border-radius: 0.5vmin;
+  width: 80%;
+}

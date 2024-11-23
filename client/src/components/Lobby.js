@@ -23,65 +23,12 @@ const Lobby = () => {
   const [message, setMessage] = useState('');
   const [loadingComplete, setLoadingComplete] = useState(false);
   const [isSpectator, setIsSpectator] = useState(false);
-  const [isHost, setIsHost] = useState(false); // Track if the current player is the host\
+  const [isHost, setIsHost] = useState(false); // Track if the current player is the host
+  const [hotseat, setHotseat] = useState(null); // Track the current hotseat player
+  const [secretNumber, setSecretNumber] = useState(null); // Track the secret number
+  const [roundNumber, setRoundNumber] = useState(0); // Track the current round number
+
   const playerId = localStorage.getItem('playerId');
-  const isHotseat = lobby?.game?.hotseat && lobby?.game?.hotseat.uuid === playerId;
-
-useEffect(() => {
-  console.log('Lobby.js mounted');
-
-    console.log('Emitting getOrCreatePlayer');
-    socket.emit('getOrCreatePlayer', { playerId, reconnect: true });
-
-  socket.on('playerData', ({ playerId }) => {
-    localStorage.setItem('playerId', playerId);
-  });
-
-  socket.on('lobbyUpdated', (updatedLobby) => {
-    console.log('Lobby updated:', updatedLobby);
-    setLobby({
-      ...updatedLobby,
-      players: updatedLobby?.players || [], // Default to an empty array
-      spectators: updatedLobby?.spectators || [], // Default to an empty array
-      game: updatedLobby?.game || null, // Default to null
-    });
-    setMessage('');
-  
-    const playerId = localStorage.getItem('playerId');
-  
-    // Determine if the current player is the host
-    setIsHost(updatedLobby?.host?.uuid === playerId);
-  
-    // Determine if the player is a spectator
-    const player = updatedLobby?.players?.find((p) => p.uuid === playerId);
-    const spectator = updatedLobby?.spectators?.find((s) => s.uuid === playerId);
-    setIsSpectator(!!spectator && !player);
-  });
-  
-
-  return () => {
-    console.log('Lobby.js unmounting');
-    socket.off('lobbyUpdated');
-    socket.off('playerData');
-  };
-}, [lobbyCode]);
-
-
-const handleReturnToHomepage = () => {
-  console.log('Return to Homepage button clicked');
-  const playerId = localStorage.getItem('playerId');
-  socket.emit('removePlayerFromLobby', { playerId, lobbyCode });
-
-  socket.once('playerRemoved', (response) => {
-    console.log(response.message);
-    navigate('/'); // Navigate to homepage
-  });
-
-  socket.once('error', (err) => {
-    console.error(err);
-    alert('Error removing the player. Please try again.');
-  });
-};
 
   useEffect(() => {
     showLoading();
@@ -110,25 +57,135 @@ const handleReturnToHomepage = () => {
 
     fetchLobby();
 
+    socket.on('playerData', ({ playerId }) => {
+      localStorage.setItem('playerId', playerId);
+    });
+
     socket.on('lobbyUpdated', (updatedLobby) => {
       console.log('Lobby updated:', updatedLobby);
-      setLobby(updatedLobby);
+      setLobby(updatedLobby); // Update the lobby state
+
+      // Log the lobby and game details
+      console.log('Lobby Details:', JSON.stringify(updatedLobby, null, 2));
+      if (updatedLobby.game) {
+        console.log('Game Details:', JSON.stringify(updatedLobby.game, null, 2));
+        setHotseat(updatedLobby.game.hotseat);
+        setSecretNumber(updatedLobby.game.secretNumber);
+      }
+
+      // Determine if the current player is the host
+      setIsHost(updatedLobby?.host?.uuid === playerId);
+
+      // Determine if the player is a spectator
+      const player = updatedLobby?.players?.find((p) => p.uuid === playerId);
+      const spectator = updatedLobby?.spectators?.find((s) => s.uuid === playerId);
+      setIsSpectator(!!spectator && !player);
+    });
+
+    socket.on('roundStarted', ({ roundNumber, hotseatPlayer, secretNumber }) => {
+      console.log(`Round ${roundNumber + 1} started with hotseat player: ${hotseatPlayer.nickname}`);
+      setRoundNumber(roundNumber);
+      setHotseat(hotseatPlayer);
+      setSecretNumber(secretNumber);
     });
 
     return () => {
-      console.log(`Lobby.js unmounting for lobbyCode: ${lobbyCode}`);
-      const playerId = localStorage.getItem('playerId');
-
-      if (!window.location.pathname.includes('/room/')) {
-        socket.emit('leaveLobby', { lobbyCode, playerId });
-      }
-
+      console.log('Lobby.js unmounting');
+      socket.off('playerData');
       socket.off('lobbyUpdated');
+      socket.off('roundStarted');
     };
-  }, [lobbyCode, navigate, showLoading, hideLoading]);
+  }, [lobbyCode]);
 
-  const handleAnimationEnd = () => {
-    setLoadingComplete(true);
+  useEffect(() => {
+    console.log('Lobby.js mounted');
+
+    const playerId = localStorage.getItem('playerId');
+    console.log('Emitting getOrCreatePlayer');
+    socket.emit('getOrCreatePlayer', { playerId, reconnect: true });
+
+    socket.on('playerData', ({ playerId }) => {
+      localStorage.setItem('playerId', playerId);
+    });
+
+    socket.on('lobbyUpdated', (updatedLobby) => {
+      console.log('Lobby updated:', updatedLobby);
+      setLobby(updatedLobby); // Update the lobby state
+
+      // Log the lobby and game details
+      console.log('Lobby Details:', JSON.stringify(updatedLobby, null, 2));
+      if (updatedLobby.game) {
+        console.log('Game Details:', JSON.stringify(updatedLobby.game, null, 2));
+        setHotseat(updatedLobby.game.hotseat);
+        setSecretNumber(updatedLobby.game.secretNumber);
+        setRoundNumber(updatedLobby.game.roundsPlayed); // Update the round number state
+      } else {
+        // Reset the secret number and round number if the game is finished
+        setSecretNumber(null);
+        setRoundNumber(0);
+      }
+  
+      // Determine if the current player is the host
+      setIsHost(updatedLobby?.host?.uuid === playerId);
+
+      // Determine if the player is a spectator
+      const player = updatedLobby?.players?.find((p) => p.uuid === playerId);
+      const spectator = updatedLobby?.spectators?.find((s) => s.uuid === playerId);
+      setIsSpectator(!!spectator && !player);
+    });
+
+    socket.on('roundStarted', ({ roundNumber, hotseatPlayer, secretNumber }) => {
+      console.log(`[roundStarted] Round ${roundNumber + 1} started with hotseat player: ${hotseatPlayer.nickname}`);
+      console.log(`[roundStarted] Secret number: ${secretNumber}`);
+      setRoundNumber(roundNumber); // Update the round number state
+      setHotseat(hotseatPlayer);
+      setSecretNumber(secretNumber);
+    });
+
+    return () => {
+      console.log('Lobby.js unmounting');
+      socket.off('playerData');
+      socket.off('lobbyUpdated');
+      socket.off('roundStarted');
+    };
+  }, [lobbyCode]);
+
+  const handleStartGame = () => {
+    console.log(`Handling the start of the game.`);
+
+    const playerId = localStorage.getItem('playerId');
+    if (!playerId) {
+      console.error('Player ID not found');
+      return;
+    }
+
+    const player = lobby.players.find((p) => p.uuid === playerId);
+    if (!player) {
+      console.error('Player not found in the lobby.');
+      return;
+    }
+
+    console.log(`Starting Game as player: ${player.nickname}`);
+    socket.emit('startGame', { lobbyCode, playerId });
+
+    // Add a listener for errors if the server doesn't handle the request
+    socket.once('error', (err) => {
+      console.error('Error starting game:', err.message);
+    });
+  };
+
+  const handleNextRound = () => {
+    console.log(`Handling the next round.`);
+  
+    const nextRoundNumber = roundNumber + 1;
+    console.log(`Next round number: ${nextRoundNumber}`);
+  
+    socket.emit('nextRound', { lobbyCode, roundNumber: nextRoundNumber });
+  
+    // Add a listener for errors if the server doesn't handle the request
+    socket.once('error', (err) => {
+      console.error('Error starting next round:', err.message);
+    });
   };
 
   const handleToggleSpectate = () => {
@@ -136,31 +193,16 @@ const handleReturnToHomepage = () => {
     socket.emit('toggleSpectate', { playerId, lobbyCode });
   };
 
-  useEffect(() => {
-    if (!lobby && !isLoading && !loadingComplete) {
-      setMessage('Lobby not found. Redirecting to homepage...');
-      setTimeout(() => navigate('/'), 3000); // Redirect after 3 seconds
-    }
-  }, [lobby, isLoading, loadingComplete, navigate]);
-
-  const handleStartGame = () => {
-    console.log(`Handling the start of the game.`);
+  const handleReturnToHomepage = () => {
+    console.log('Return to Homepage button clicked');
     const playerId = localStorage.getItem('playerId');
-    if (!playerId) {
-        console.error('Player ID not found');
-        return;
-    }
+    socket.emit('removePlayerFromLobby', { playerId, lobbyCode });
+    navigate('/');
+  };
 
-    const player = lobby.players.find((p) => p.uuid === playerId);
-    if (!player) {
-        console.error('Player not found in the lobby.');
-        return;
-    }
-
-    console.log(`Starting Game as player: ${player.nickname}`);
-    socket.emit('startGame', { lobbyCode, player }); // Pass player object
-};
-
+  const handleAnimationEnd = () => {
+    setLoadingComplete(true);
+  };
 
   return (
     <div className="lobby-app">
@@ -175,75 +217,100 @@ const handleReturnToHomepage = () => {
         <LoadingScreen onAnimationEnd={handleAnimationEnd} />
       ) : (
         <div className={`content ${loadingComplete ? 'fade-in' : ''}`}>
-
-      {/* Display the secret number */}
-      <div className="secretnumber-container">
-  <p className="secretnumber-label">Secret Number:</p>
-  <div className="secretnumber">
-    {lobby?.game && lobby.game.secretNumber !== null && !isHotseat ? lobby.game.secretNumber : "?"}
-  </div>
-</div>
-
+          <div className="wavelength-title">Wavelength</div>
+          <div className="game-controls-container">
+            <h2>Game Controls</h2>
+          </div>
+          {/* Game Chat */}
+          <div className="game-chat-container">
+            <div className="chat-messages">
+              {[
+                { type: 'system', text: 'Welcome to the game!' },
+                { type: 'other', text: 'Player1 has joined the lobby.' },
+                { type: 'other', text: 'Player2: Hello, everyone!' },
+                { type: 'event', text: 'The game has started!' },
+                { type: 'system', text: 'The Secret Number is being guessed...' },
+              ].map((message, index) => (
+                <div key={index} className={`chat-message ${message.type}`}>
+                  {message.text}
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Display the secret number */}
+          <div className="secretnumber-container">
+            <p className="secretnumber-label">Secret Number:</p>
+            <div className="secretnumber">
+              {hotseat && hotseat.uuid === playerId ? "?" : secretNumber || "?"}
+            </div>
+          </div>
           {lobby ? (
             <div className="lobbyinfo-container">
               <div className="lobby-header">
                 <h1 className="lobby-code">Lobby Code: {lobby.lobbyCode}</h1>
                 <p className="lobby-status">Status: {lobby.status}</p>
-                            {/* Show Start Game button only if the current player is the host */}
-{/* Show Start Game button only if the current player is the host, the lobby is in 'waiting' status, and there are 2 or more players */}
-{isHost && lobby.status === 'waiting' && lobby.players.length >= 2 && (
-  <button
-    className="lobby-button start-game-button"
-    onClick={handleStartGame}
-  >
-    Start Game
-  </button>
-)}
+                {/* Show Start Game button only if the current player is the host */}
+                {isHost && lobby.status === 'waiting' && lobby.players.length >= 2 && (
+                  <button
+                    className="lobby-button start-game-button"
+                    onClick={handleStartGame}
+                  >
+                    Start Game
+                  </button>
+                )}
+                {/* Show Next Round button only if the current player is the host */}
+                {isHost && lobby.status === 'in-progress' && (
+                  <button
+                    className="lobby-button next-round-button"
+                    onClick={handleNextRound}
+                  >
+                    Next Round
+                  </button>
+                )}
               </div>
               <div className="player-section">
-  <h2>Players</h2>
-  <ul className="player-list">
-    {lobby?.players?.map((player) => (
-      <li className="player-list-item" key={player._id}>
-        {player.nickname || 'Unnamed Player'}
-      </li>
-    )) || <p>No players in the lobby.</p>}
-  </ul>
-</div>
-<div className="spectator-section">
-  <h2>Spectators</h2>
-  <ul className="spectator-list">
-    {lobby?.spectators?.map((spectator) => (
-      <li className="spectator-list-item" key={spectator._id}>
-        {spectator.nickname || 'Unnamed Spectator'}
-      </li>
-    )) || <p>No spectators in the lobby.</p>}
-  </ul>
-</div>
+                <h2>Players</h2>
+                <ul className="player-list">
+                  {lobby?.players?.map((player) => (
+                    <li className="player-list-item" key={player._id}>
+                      {player.nickname || 'Unnamed Player'}
+                    </li>
+                  )) || <p>No players in the lobby.</p>}
+                </ul>
+              </div>
+              <div className="spectator-section">
+                <h2>Spectators</h2>
+                <ul className="spectator-list">
+                  {lobby?.spectators?.map((spectator) => (
+                    <li className="spectator-list-item" key={spectator._id}>
+                      {spectator.nickname || 'Unnamed Spectator'}
+                    </li>
+                  )) || <p>No spectators in the lobby.</p>}
+                </ul>
+              </div>
               <div className="lobby-button-container">
-              {lobby.status !== 'in-progress' && (
-  <button
-    className="lobby-button toggle-role-button"
-    onClick={handleToggleSpectate}
-  >
-    {isSpectator ? 'Join Game' : 'Spectate'}
-  </button>
-)}
-<button
-  className="lobby-button"
-  onClick={handleReturnToHomepage}
->
-  Return to Homepage
-</button>
-</div>  
+                {lobby.status !== 'in-progress' && (
+                  <button
+                    className="lobby-button toggle-role-button"
+                    onClick={handleToggleSpectate}
+                  >
+                    {isSpectator ? 'Join Game' : 'Spectate'}
+                  </button>
+                )}
+                <button
+                  className="lobby-button"
+                  onClick={handleReturnToHomepage}
+                >
+                  Return to Homepage
+                </button>
+              </div>
             </div>
           ) : (
             <p>{message}</p>
           )}
         </div>
       )}
-</div>  
-
+    </div>
   );
 };
 

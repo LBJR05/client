@@ -3,10 +3,11 @@ const mongoose = require('mongoose');
 const GameSchema = new mongoose.Schema({
   lobby: { type: mongoose.Schema.Types.ObjectId, ref: 'Lobby', required: true }, // Link the game to the lobby
   secretNumber: { type: Number, default: null }, // The secret number for the game
-  rounds: { type: Number, default: 1 }, // Example: Number of rounds in the game
+  rounds: { type: Number, default: 1 }, // Number of rounds in the game
+  roundsPlayed: { type: Number, default: 0 }, // Number of rounds played
   status: { type: String, enum: ['waiting', 'in-progress', 'finished'], default: 'waiting' }, // Game status
   hotseat: { type: mongoose.Schema.Types.ObjectId, ref: 'Player', default: null }, // Hotseat player
-  usedHotseatPlayers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Player' }], // Track players who have been in the hotseat
+  shuffledPlayers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Player' }], // Shuffled order of players
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -22,7 +23,6 @@ GameSchema.methods.start = function () {
     throw new Error('Game is already in progress or finished.');
   }
   this.status = 'in-progress';
-  this.generateSecretNumber(); // Generate a secret number when the game starts
 };
 
 // Method to end the game
