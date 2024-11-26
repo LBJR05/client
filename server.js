@@ -78,6 +78,8 @@ const disconnectionTimeouts = new Map();
 const reconnectingSockets = new Set();
 
 const disconnectedPlayers = new Map(); // Key: lobbyCode, Value: { playerId, disconnectTime }
+const activePlayers = new Map(); // Key: playerId, Value: socketId
+
 const REJOIN_TIME_LIMIT = 10000; // 10 seconds
 
 async function deleteGame(gameId) {
@@ -267,54 +269,149 @@ const shuffleArray = (array) => {
   return array;
 };
 
+const handleNextQuestionOrGuess = async (lobby, lobbyCode) => {
+
+  const updatedLobby = await Lobby.findById(lobby._id)
+  .populate({
+    path: 'game',
+    populate: {
+      path: 'hotseat',
+      model: 'Player',
+    },
+  })
+  .populate('players spectators host');
+
+// Include answeredPlayers in the game object
+io.to(lobbyCode).emit('lobbyUpdated', {
+  ...updatedLobby.toObject(),
+  answeredPlayers: updatedLobby.game?.answeredPlayers || [],
+});
+
+  try {
+    if (!lobby.game.answeredPlayers) {
+      lobby.game.answeredPlayers = [];
+    }
+
+    // Debugging log to track answered players
+    console.log('[handleNextQuestionOrGuess] Answered players:', lobby.game.answeredPlayers);
+
+    // Determine remaining players who haven't been questioned
+    const remainingPlayers = lobby.players.filter(
+      (p) => !lobby.game.answeredPlayers.includes(p.uuid) && p.uuid !== lobby.game.hotseat.uuid
+    );
+
+    console.log('[handleNextQuestionOrGuess] Remaining players:', remainingPlayers.map((p) => p.nickname));
+
+    if (remainingPlayers.length === 0) {
+      // Transition to guessing phase
+      console.log('[handleNextQuestionOrGuess] Transitioning to guessing phase.');
+      io.to(lobbyCode).emit('phaseChanged', {
+        phase: 'guessing',
+        hotseatNickname: lobby.game.hotseat?.nickname || 'Unknown Player',
+      });
+      io.to(lobbyCode).emit('chatMessage', {
+        type: 'system',
+        text: `${lobby.game.hotseat.nickname} is about to guess.`,
+      });
+    } else {
+      // Enable controls for the hotseat player to ask the next question
+      const hotseatSocketId = activePlayers.get(lobby.game.hotseat.uuid);
+      if (hotseatSocketId) {
+        io.to(hotseatSocketId).emit('enableControls', { message: 'You may now question the next player.' });
+      }
+
+      io.to(lobbyCode).emit('phaseChanged', { phase: 'questioning' });
+    }
+
+    // Save the updated game state
+    await lobby.game.save();
+  } catch (error) {
+    console.error('[handleNextQuestionOrGuess] Error determining next phase:', error);
+  }
+};
 const startRound = async (lobby, roundNumber) => {
   try {
     console.log(`[startRound] Starting round ${roundNumber + 1} for lobbyCode: ${lobby.lobbyCode}`);
+
     const game = await Game.findById(lobby.game).populate('hotseat');
     if (!game) {
       throw new Error('Game not found');
     }
 
     // Check if all rounds are completed
-    if (roundNumber >= game.rounds) {
+    if (game.roundsPlayed >= game.rounds) {
+      console.log(`[startRound] All rounds completed for lobbyCode: ${lobby.lobbyCode}`);
+      
+      // Mark the game as finished and delete it
       game.status = 'finished';
       await game.save();
-      console.log(`[startRound] All rounds completed for lobbyCode: ${lobby.lobbyCode}`);
+
+      // Delete the game object
+      await Game.findByIdAndDelete(game._id);
+
+      // Update the lobby's status to finished and remove the game reference
+      lobby.status = 'finished';
+      lobby.game = null;
+      await lobby.save();
+
+      console.log(`[startRound] Game deleted and lobby marked as finished for lobbyCode: ${lobby.lobbyCode}`);
+
+      // Notify all clients that the game has ended
+      io.to(lobby.lobbyCode).emit('gameFinished', {
+        message: 'The game has ended. Thank you for playing!',
+      });
+
+      // Emit the updated lobby state to all clients
+      const updatedLobby = await Lobby.findById(lobby._id)
+        .populate('players spectators host');
+
+      io.to(lobby.lobbyCode).emit('lobbyUpdated', updatedLobby);
       return;
     }
 
     // Determine the hotseat player for this round using the shuffled order
-    const hotseatPlayerId = game.shuffledPlayers[roundNumber];
+    const hotseatPlayerId = game.shuffledPlayers[game.roundsPlayed];
     const hotseatPlayer = await Player.findById(hotseatPlayerId);
     game.hotseat = hotseatPlayer;
 
-    // Generate a new secret number only if it's the first round or a new round
-    if (roundNumber === game.roundsPlayed) {
-      game.generateSecretNumber(); // Generate a new secret number for each round
-    }
+    console.log(`[startRound] Emitting to hotseat: ${hotseatPlayer.nickname}`);
 
+    // Reset the answeredPlayers array for the new round
+    game.answeredPlayers = [];
+    console.log(`[startRound] Reset answeredPlayers for round ${game.roundsPlayed + 1}`);
+
+    // Generate a new secret number
+    game.generateSecretNumber();
+
+    // Increment rounds played
+    game.roundsPlayed += 1;
     await game.save();
 
-    console.log(`[startRound] Round ${roundNumber + 1} started for lobbyCode: ${lobby.lobbyCode}`);
+    console.log(`[startRound] Round ${game.roundsPlayed} started for lobbyCode: ${lobby.lobbyCode}`);
     console.log(`[startRound] Hotseat player: ${hotseatPlayer.nickname}`);
     console.log(`[startRound] Secret number: ${game.secretNumber}`);
 
-    // Emit the round event to all clients in the lobby except the hotseat player
+    // Notify all players about the round
     lobby.players.forEach(player => {
       if (player.equals(hotseatPlayer._id)) {
+        // Notify the hotseat player (without revealing the secret number)
         io.to(player.socketId).emit('roundStarted', {
-          roundNumber,
+          roundNumber: game.roundsPlayed - 1,
           hotseatPlayer,
-          secretNumber: null, // Do not send the secret number to the hotseat player
+          secretNumber: null,
         });
       } else {
+        // Notify the other players (with the secret number)
         io.to(player.socketId).emit('roundStarted', {
-          roundNumber,
+          roundNumber: game.roundsPlayed - 1,
           hotseatPlayer,
           secretNumber: game.secretNumber,
         });
       }
     });
+
+    // Transition to questioning phase
+    io.to(lobby.lobbyCode).emit('phaseChanged', { phase: 'questioning', hotseatNickname: hotseatPlayer.nickname });
 
     // Emit the updated lobby to all clients
     const updatedLobby = await Lobby.findById(lobby._id)
@@ -333,6 +430,10 @@ const startRound = async (lobby, roundNumber) => {
     console.error(`[startRound] Error starting round for lobbyCode ${lobby.lobbyCode}:`, error);
   }
 };
+
+
+
+
 // WebSocket connections
 io.on('connection', (socket) => {
   console.log('[Socket][Connection] New client connected:', socket.id);
@@ -346,10 +447,14 @@ io.on('connection', (socket) => {
         // If the socket already has a playerId, emit the existing playerData
         if (socket.state.playerId) {
             console.log(`[Socket][getOrCreatePlayer] Socket ${socket.id} already has playerId ${socket.state.playerId}`);
-            
+
             const existingPlayer = await Player.findOne({ uuid: socket.state.playerId });
             if (existingPlayer) {
                 socket.emit('playerData', { playerId: existingPlayer.uuid, nickname: existingPlayer.nickname });
+
+                // Update activePlayers with the latest socketId
+                activePlayers.set(playerId, socket.id);
+
             } else {
                 console.warn(`[Socket][getOrCreatePlayer] No matching player found for playerId ${socket.state.playerId}.`);
             }
@@ -411,6 +516,9 @@ io.on('connection', (socket) => {
         }
         activeSockets.get(playerId).add(socket.id);
 
+        // Update activePlayers map
+        activePlayers.set(playerId, { socketId: socket.id, nickname: player.nickname });
+
         // Update the socket's state
         socket.state.playerId = playerId;
         console.log(`[Socket][getOrCreatePlayer] Player ${playerId} connected with socket ${socket.id}`);
@@ -419,6 +527,7 @@ io.on('connection', (socket) => {
         socket.emit('error', { message: 'Internal server error while processing player creation or retrieval.' });
     }
 });
+
 
   socket.on('joinLobby', async ({ lobbyCode, playerId }) => {
     console.log(`[Socket][joinLobby] Received lobbyCode: ${lobbyCode}, playerId: ${playerId}`);
@@ -500,7 +609,26 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', async () => {
     console.log('[Socket][disconnect] Client disconnected:', socket.id);
+
     const { playerId, lobbyCode } = socket.state;
+
+    // Check if the player was previously registered
+    if (playerId) {
+        // Remove the player's socketId from activeSockets
+        if (activeSockets.has(playerId)) {
+            activeSockets.get(playerId).delete(socket.id);
+            if (activeSockets.get(playerId).size === 0) {
+                activeSockets.delete(playerId);
+            }
+        }
+
+        // Remove the player from activePlayers if no sockets remain
+        const player = activePlayers.get(playerId);
+        if (player && player.socketId === socket.id) {
+            activePlayers.delete(playerId);
+            console.log(`[Socket][Disconnect] Removed player ${playerId} from activePlayers`);
+        }
+    }
 
     if (playerId && lobbyCode) {
         console.log(`[Socket][disconnect] Player ${playerId} disconnected from lobby ${lobbyCode}.`);
@@ -511,7 +639,7 @@ io.on('connection', (socket) => {
             disconnectTime: Date.now(),
         });
 
-        // Remove player immediately
+        // Remove player immediately from the lobby
         await removePlayerFromLobby(playerId, lobbyCode);
 
         // Allow rejoin within the grace period
@@ -528,6 +656,7 @@ io.on('connection', (socket) => {
         }, REJOIN_TIME_LIMIT);
     }
 });
+
 
     // Add the event listener for 'removePlayerFromLobby'
     socket.on('removePlayerFromLobby', async ({ playerId, lobbyCode }) => {
@@ -632,6 +761,7 @@ io.on('connection', (socket) => {
         status: 'in-progress',
         rounds: lobby.players.length, // Set the number of rounds to match the number of players
         shuffledPlayers, // Store the shuffled order of players
+        answeredPlayers: [], // Initialize answeredPlayers as an empty array
       });
   
       // Save the new Game object
@@ -722,6 +852,149 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'Failed to start the next round.' });
     }
   });
+
+  socket.on('submitQuestion', async ({ lobbyCode, questioningPlayer, question }) => {
+    console.log(`[submitQuestion] Received question for player ${questioningPlayer} in lobby ${lobbyCode}: ${question}`);
+  
+    try {
+      const lobby = await Lobby.findOne({ lobbyCode })
+        .populate('players spectators host')
+        .populate({
+          path: 'game',
+          populate: {
+            path: 'hotseat',
+            model: 'Player',
+          },
+        });
+  
+      if (!lobby) {
+        console.log('[submitQuestion] Invalid lobby code');
+        return socket.emit('error', { message: 'Invalid lobby code' });
+      }
+  
+      const questionedPlayer = await Player.findOne({ uuid: questioningPlayer });
+      if (!questionedPlayer) {
+        console.log('[submitQuestion] Player not found');
+        return socket.emit('error', { message: 'Player not found' });
+      }
+  
+      const questioningPlayerDetails = await Player.findOne({ uuid: socket.state.playerId });
+      if (!questioningPlayerDetails) {
+        console.log('[submitQuestion] Questioning player not found');
+        return socket.emit('error', { message: 'Questioning player not found' });
+      }
+  
+      const questionedSocketId = activePlayers.get(questionedPlayer.uuid);
+      const hotseatSocketId = activePlayers.get(lobby.game.hotseat.uuid);
+  
+      // Send the question to the questioned player
+      if (questionedSocketId) {
+        io.to(questionedSocketId).emit('questionReceived', { question });
+      }
+  
+      // Disable hotseat controls while waiting for the answer
+      if (hotseatSocketId) {
+        io.to(hotseatSocketId).emit('disableControls', { message: 'Waiting for response from questioned player' });
+      }
+  
+      // Broadcast the question to everyone in the lobby
+      io.to(lobbyCode).emit('questionBroadcast', {
+        question,
+        questioningPlayerNickname: questioningPlayerDetails?.nickname || 'Unknown Player',
+      });
+  
+      console.log('[submitQuestion] Question broadcasted successfully.');
+    } catch (error) {
+      console.error(`[submitQuestion] Error handling question for lobbyCode ${lobbyCode}:`, error);
+      socket.emit('error', { message: 'Failed to handle question.' });
+    }
+  });
+  
+  socket.on('submitAnswer', async ({ lobbyCode, answer }) => {
+    console.log(`[submitAnswer] Received answer for lobbyCode ${lobbyCode}: ${answer}`);
+  
+    try {
+      // Fetch the lobby
+      const lobby = await Lobby.findOne({ lobbyCode })
+        .populate({
+          path: 'game',
+          populate: {
+            path: 'hotseat',
+            model: 'Player',
+          },
+        })
+        .populate('players spectators host');
+  
+      if (!lobby) {
+        console.log('[submitAnswer] Invalid lobby code');
+        return socket.emit('error', { message: 'Invalid lobby code' });
+      }
+  
+      // Retrieve the player using the stored state
+      const playerId = socket.state.playerId; // `playerId` stored in the socket state during connection
+      const player = await Player.findOne({ uuid: playerId });
+      if (!player) {
+        console.log('[submitAnswer] Player not found');
+        return socket.emit('error', { message: 'Player not found' });
+      }
+  
+      // Ensure answeredPlayers is initialized
+      if (!lobby.game.answeredPlayers) {
+        lobby.game.answeredPlayers = [];
+      }
+  
+      // Broadcast the answer to all players in the lobby
+      io.to(lobbyCode).emit('answerReceived', { answer, playerNickname: player.nickname });
+      console.log(`[submitAnswer] Answer "${answer}" from ${player.nickname} broadcasted to lobby ${lobbyCode}`);
+  
+      // Update the list of answered players in the game
+      if (!lobby.game.answeredPlayers.includes(player.uuid)) {
+        lobby.game.answeredPlayers.push(player.uuid);
+        await lobby.game.save(); // Save the updated game state
+        console.log(`[submitAnswer] Player ${player.nickname} added to answeredPlayers.`);
+      }
+  
+      // Notify the questioning logic
+      handleNextQuestionOrGuess(lobby, lobbyCode);
+    } catch (error) {
+      console.error(`[submitAnswer] Error processing answer for lobbyCode ${lobbyCode}:`, error);
+      socket.emit('error', { message: 'Failed to process answer.' });
+    }
+  });
+
+  socket.on('submitGuess', async ({ lobbyCode, guess, playerId }) => {
+    try {
+      const lobby = await Lobby.findOne({ lobbyCode }).populate('game players spectators');
+      if (!lobby || !lobby.game) {
+        return socket.emit('error', { message: 'Lobby or game not found.' });
+      }
+  
+      const player = await Player.findOne({ uuid: playerId });
+      if (!player) {
+        return socket.emit('error', { message: 'Player not found.' });
+      }
+  
+      const isCorrect = Number(guess) === lobby.game.secretNumber;
+  
+      // Broadcast the guess result to all players
+      io.to(lobbyCode).emit('guessResult', {
+        nickname: player.nickname,
+        guessedNumber: guess,
+        isCorrect,
+      });
+  
+
+      if (isCorrect || !isCorrect) {
+        await startRound(lobby, lobby.game.roundsPlayed);
+    }
+
+    } catch (error) {
+      console.error('[submitGuess] Error:', error);
+      socket.emit('error', { message: 'Failed to submit guess.' });
+    }
+  });
+  
+  
 });
 // Start server
 const PORT = process.env.PORT || 4000;

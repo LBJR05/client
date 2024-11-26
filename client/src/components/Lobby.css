@@ -37,7 +37,6 @@ body {
     background-color: #3b3f45; /* Background color */
     border-radius: 1vmin; /* Rounded corners */
     padding: 2vmin;
-    width: 80vw; /* Maintain the current width */
     max-width: 400px; /* Limit the maximum width */
     box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.3); /* Add shadow for depth */
     overflow: hidden; /* Ensure no content exceeds the container */
@@ -336,23 +335,6 @@ body {
   color: #61dafb;
 }
 
-.game-controls-container button {
-  background-color: #4caf50;
-  color: white;
-  border: none;
-  border-radius: 0.5vmin;
-  padding: 1vmin 2vmin;
-  font-size: 2vmin;
-  font-weight: bold;
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.game-controls-container button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.5);
-}
-
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
 
 /* Wavelength title */
@@ -370,61 +352,6 @@ body {
                0 0 30px rgba(255, 255, 255, 0.4); /* Glowing effect */
   z-index: 100; /* Ensure it's above other elements */
 }
-
-.game-phase-container select,
-.game-phase-container input[type="text"],
-.game-phase-container button {
-  margin: 1vmin;
-  padding: 0.8vmin;
-  font-size: 1.8vmin;
-}
-
-.game-phase-container select {
-  background-color: #3b3f45;
-  color: white;
-  border: none;
-  border-radius: 0.5vmin;
-  width: 100%; /* Full width */
-}
-
-.game-phase-container input[type="text"] {
-  background-color: #3b3f45;
-  color: white;
-  border: none;
-  border-radius: 0.5vmin;
-  width: calc(100% - 2vmin);
-}
-
-.game-phase-container button {
-  background-color: #4caf50;
-  color: white;
-  border: none;
-  border-radius: 0.5vmin;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-}
-
-.game-phase-container button:hover {
-  background-color: #45a049;
-}
-
-/* Default styles for inputs and buttons */
-.game-controls-container input[type="text"],
-.game-controls-container button {
-  visibility: hidden; /* Hidden by default */
-  margin: 1vmin 0;
-  padding: 1vmin;
-  font-size: 1.8vmin;
-  border: none;
-  border-radius: 0.5vmin;
-}
-
-/* Styles for visible elements */
-.game-controls-container input[type="text"].visible,
-.game-controls-container button.visible {
-  visibility: visible;
-}
-
 /* Dropdown styling */
 .game-controls-container select {
   margin: 1vmin 0;
@@ -436,28 +363,277 @@ body {
   border-radius: 0.5vmin;
 }
 
-/* Button hover and disabled states */
-.game-controls-container button {
+.questioning-phase {
+  background-color: #2c2f33;
+  border-radius: 1vmin;
+  padding: 2vmin;
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column; /* Stack by default */
+  align-items: center;
+  gap: 1.5vmin;
+  margin: 2vmin 0;
+  width: 80%;
+  max-width: 1000px;
+}
+
+.questioning-phase p {
+  font-size: 1.8vmin;
+  color: #61dafb;
+  margin-bottom: 1vmin;
+  font-weight: bold;
+}
+
+.questioning-phase .input-container {
+  display: flex;
+  gap: 1vmin; /* Space between input and dropdown */
+  width: 100%; /* Full width for smaller screens */
+}
+
+.questioning-phase select,
+.questioning-phase input {
+  padding: 0.8vmin; /* Uniform padding */
+  font-size: 1.6vmin; /* Same font size */
+  background-color: #3b3f45;
+  color: white;
+  border: none;
+  border-radius: 0.5vmin;
+  box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.3);
+  line-height: 1.5; /* Adjust line-height for consistency */
+  flex: 1; /* Allow elements to grow evenly */
+  height: 4vmin; /* Explicit height for uniformity */
+  box-sizing: border-box; /* Ensures padding is included in height */
+  margin: 0;
+}
+
+.questioning-phase .input-container {
+  display: flex;
+  flex-direction: row; /* Default to stacking */
+  gap: 1vmin; /* Space between buttons */
+  width: 100%; /* Full width for smaller screens */
+}
+
+.questioning-phase .button-container {
+  display: flex;
+  flex-direction: row; /* Default to stacking */
+  gap: 1vmin; /* Space between buttons */
+  width: 100%; /* Full width for smaller screens */
+}
+
+.questioning-phase button {
   background-color: #4caf50;
   color: white;
+  border: none;
+  border-radius: 0.5vmin;
+  padding: 1vmin 2vmin;
+  font-size: 1.6vmin;
+  font-weight: bold;
   cursor: pointer;
-  transition: background-color 0.3s ease;
+  flex: 1; /* Allow buttons to grow evenly */
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.game-controls-container button:hover {
-  background-color: #45a049;
+.questioning-phase button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.5);
 }
 
-.game-controls-container button:disabled {
-  background-color: #888;
-  cursor: not-allowed;
+.questioning-phase button:active {
+  transform: translateY(0);
+  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3);
 }
 
-/* Input styling */
-.game-controls-container input[type="text"] {
+/* Answering phase styles */
+.answering-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1vmin;
+  margin-top: 2vmin;
+  padding: 2vmin;
+  background-color: #2c2f33;
+}
+
+.answering-phase .question {
+  font-size: 2.5vmin;
+  font-weight: bold;
+  color: #ffffff;
+  text-align: center;
+}
+
+.answering-phase input[type="text"] {
   background-color: #3b3f45;
   color: white;
   border: none;
   border-radius: 0.5vmin;
   width: 80%;
+  padding: 1vmin;
+  font-size: 1.8vmin;
 }
+
+.answering-phase button {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 0.5vmin;
+  padding: 1vmin 2vmin;
+  font-size: 1.8vmin;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.answering-phase button:hover {
+  background-color: #45a049;
+}
+
+.answering-phase button:disabled {
+  background-color: #888;
+  cursor: not-allowed;
+}
+
+
+.guessing-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #3b3f45;
+  padding: 2vmin;
+  border-radius: 1vmin;
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.3);
+  margin: 2vmin 0;
+  width: 80%;
+  max-width: 600px;
+}
+
+.hotseat-guess h2 {
+  font-size: 2.5vmin;
+  color: #61dafb;
+}
+
+.hotseat-guess input[type='range'] {
+  width: 100%;
+  margin: 1vmin 0;
+}
+
+.hotseat-guess button {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 0.5vmin;
+  padding: 1vmin 2vmin;
+  font-size: 1.8vmin;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.hotseat-guess button:hover {
+  background-color: #45a049;
+}
+
+/* Style for the player's own messages */
+.chat-message-self {
+  background-color: #32a852; /* Green for self */
+  color: white;
+  align-self: flex-end;
+}
+
+/* Style for other players' messages */
+.chat-message-other {
+  background-color: #3282a8; /* Blue for others */
+  color: white;
+  align-self: flex-start;
+}
+
+
+
+/* Media query for screens below 1200 pixels wide */
+@media (max-width: 1200px) {
+  .lobbyinfo-container {
+    top: 10vh;
+    max-width: 250px;
+  }
+  .secretnumber-container {
+    top: 10vh;
+    padding: 1vmin;
+  }
+  .secretnumber-label {
+    color: #fff;
+    font-size: 2vmin;
+    font-weight: 500;
+    margin-bottom: 1vmin;
+  }
+  .secretnumber {
+    color: #4caf50;
+    font-size: 4vmin;
+    font-weight: 700;
+    text-align: center;
+  }
+  .game-controls-container {
+    left: 33.5vw;
+  }
+  .chat-messages, .game-chat-container {
+    left: 33.5vw;
+  }
+
+  .questioning-phase {
+    background-color: #2c2f33; /* Dark background for contrast */
+    border-radius: 1vmin; /* Smooth rounded corners */
+    padding: 2vmin; /* Add padding for spacing */
+    box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.3); /* Subtle shadow for depth */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 1.5vmin; /* Space between elements */
+    margin: 2vmin 0; /* Space around the component */
+    width: 80%; /* Responsive width */
+    max-width: 500px; /* Limit maximum width */
+  }
+  
+  .questioning-phase p {
+    font-size: 1.8vmin; /* Readable font size */
+    color: #61dafb; /* Accent color */
+    margin-bottom: 1vmin; /* Add spacing below text */
+    font-weight: bold; /* Emphasize importance */
+  }
+  
+  .questioning-phase select,
+  .questioning-phase input {
+    margin: 1vmin 0;
+    padding: 1vmin;
+    font-size: 1.6vmin;
+    background-color: #3b3f45; /* Match the background */
+    color: white;
+    border: none;
+    border-radius: 0.5vmin;
+    width: 100%; /* Full width for responsiveness */
+    box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+  }
+  
+  .questioning-phase button {
+    background-color: #4caf50; /* Green for action buttons */
+    color: white;
+    border: none;
+    border-radius: 0.5vmin;
+    padding: 1vmin 2vmin;
+    font-size: 1.6vmin;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    width: 100%; /* Full width for consistency */
+  }
+  
+  .questioning-phase button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.5); /* Enhanced hover effect */
+  }
+  
+  .questioning-phase button:active {
+    transform: translateY(0); /* Reset lift effect on click */
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3); /* Reset shadow */
+  }
+  
+  
+}
+

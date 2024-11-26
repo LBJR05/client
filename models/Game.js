@@ -8,6 +8,7 @@ const GameSchema = new mongoose.Schema({
   status: { type: String, enum: ['waiting', 'in-progress', 'finished'], default: 'waiting' }, // Game status
   hotseat: { type: mongoose.Schema.Types.ObjectId, ref: 'Player', default: null }, // Hotseat player
   shuffledPlayers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Player' }], // Shuffled order of players
+  answeredPlayers: [{ type: String, default: [] }], // Initialize as an empty array
   createdAt: { type: Date, default: Date.now },
 });
 
